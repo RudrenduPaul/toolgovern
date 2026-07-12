@@ -94,12 +94,13 @@ const readOutsideScope: Rule = {
   id: 'TG02-read-outside-scope',
   category,
   description:
-    "A read targets a path outside the caller's declared filesystem scope. Only fires when a " +
-    'filesystem boundary was actually declared -- reads are not flagged for a caller with no ' +
-    'declared filesystem scope at all (that absence is enforced elsewhere, e.g. TG05 zero-' +
-    'capability denial), since nothing here would tell a read apart from any other unscoped call.',
+    "A read targets a path outside the caller's declared filesystem scope. Matches the " +
+    'write/delete/chmod siblings in this file: an empty `filesystem` scope means nothing is in ' +
+    'scope, so any concrete path read is out of scope and flagged. A caller with `filesystem: []` ' +
+    'but a non-empty network or credential grant (a realistic partial grant) still gets its reads ' +
+    'checked here -- it is not "zero capability" and TG05 zero-capability denial does not cover ' +
+    'it, so this rule must not no-op just because no filesystem prefix was declared.',
   evaluate(ctx) {
-    if (ctx.scope.filesystem.length === 0) return null;
     const path = extractPath(ctx.args);
     if (!path) return null;
     const op =
