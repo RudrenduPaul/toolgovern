@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Optional HMAC-keyed trace signing: `TraceWriterOptions.secretKey`, `verifyChain({ secretKey })`,
+  and `toolgovern-cli audit --verify-chain --key-file <path>` -- makes the trace tamper-evident
+  against an attacker who does not hold the key, not just against a naive hand-edit
+- `TG01-decoded-payload-execution` rule -- catches base64/hex/openssl-decode-then-execute shell
+  patterns that have no literal `curl`/`wget` token for `TG01-pipe-to-shell` to match
+- `docs/security-model.md` -- full threat-modeling writeup: what was found, what was fixed, what
+  is a documented v0.1 limitation
+- `benchmarks/README.md` -- real, measured detection-rate/false-positive-rate/latency numbers
+- `docs/branch-protection.md` -- the exact commands to lock down `main` when the maintainers are
+  ready to turn that on
+
+### Changed
+
+- Classifier text matching (TG01 shell rules, TG04 credential rules, TG03 host extraction) now
+  runs through `normalizeForMatch()` first, closing confirmed bypasses via base64-decode piping,
+  empty-quote-pair splitting (`r""m -rf /`), invisible Unicode characters, and `$IFS`-as-space
+  substitution
+- `TG01-rm-rf`'s regex rewritten to remove a confirmed polynomial-time ReDoS (6s on an
+  80,000-character adversarial argument; now ~2.5ms)
+- Benchmark corpus grown from 18 to 112 labeled cases, 15-29 per rule category, with a
+  category-aware detection-rate calculation in `detection-rate.ts`
+
+### Fixed
+
+- `governTool()`: a throwing/rejecting `onApprovalRequired` handler now fails closed like a
+  timeout, instead of skipping the trace write and leaking a raw, untyped error
+
 ## [0.1.0] - 2026-07-11
 
 Initial v0.1 build.
