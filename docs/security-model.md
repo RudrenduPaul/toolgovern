@@ -149,15 +149,29 @@ a matching `secretKey` and:
 - verifies an `hmac-sha256:` entry correctly when given the right key,
 - **reports an issue** (not a silent pass) if an `hmac-sha256:` entry is presented with no key or
   the wrong key,
-- keeps verifying legacy/default `sha256:` entries exactly as before (fully backward compatible).
+- keeps verifying legacy/default `sha256:` entries exactly as before, per-entry, regardless of
+  whether the caller happens to also supply a `secretKey`.
+
+That last point was a real bug caught during the manual end-to-end QA pass (Section 5 of the
+build checklist), not something caught by a unit test first: `verifyChain()` initially applied
+whatever `secretKey` it was given to _every_ entry regardless of that entry's own signature
+scheme, so running `toolgovern-cli audit --verify-chain --key-file <path>` against a perfectly
+valid, untampered, unkeyed (`sha256:`) trace reported every single entry as `CHAIN INVALID` --
+the key was being used to recompute a signature for entries that were never signed with a key at
+all. Fixed by only applying `secretKey` to entries whose own scheme is `hmac-sha256`; a `sha256:`
+entry is always recomputed unkeyed. Regression tests added at both layers:
+`packages/toolgovern/test/trace/trace-reader.test.ts` ("verifies a chain written WITHOUT a key
+even when the caller supplies a secretKey anyway") and
+`packages/toolgovern-cli/test/cli.test.ts` ("verifies an unkeyed (sha256) trace fine even when
+--key-file is passed anyway").
 
 `toolgovern-cli audit --verify-chain` gained a `--key-file <path>` flag that reads a raw key file
 and passes it through.
 
 Proof: `packages/toolgovern/test/trace/trace-reader.test.ts` (`hmac-sha256 keyed signing`) covers
-round-trip verification, missing-key detection, and a forged-entry-with-wrong-key rejection.
-`packages/toolgovern-cli/test/cli.test.ts` covers the `--key-file` flag end to end, including a
-clear error when the key file itself does not exist.
+round-trip verification, missing-key detection, a forged-entry-with-wrong-key rejection, and the
+mixed-scheme regression above. `packages/toolgovern-cli/test/cli.test.ts` covers the `--key-file`
+flag end to end, including a clear error when the key file itself does not exist.
 
 **Residual limitation, disclosed rather than hidden.** Keyed signing raises the bar -- an attacker
 without the key cannot forge a valid entry -- but it is not a complete solution. toolgovern does

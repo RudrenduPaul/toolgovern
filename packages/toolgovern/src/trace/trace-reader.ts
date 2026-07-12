@@ -108,7 +108,14 @@ export function verifyChain(
         reason: 'Entry is signed with hmac-sha256 but no secretKey was supplied to verify it.',
       });
     } else if (scheme === 'hmac-sha256' || scheme === 'sha256') {
-      const expected = computeEntrySignature(entry, options.secretKey);
+      // Only pass the key through for entries actually signed with it. A `sha256:` entry must
+      // always be recomputed unkeyed, even if the caller supplied a secretKey (e.g. verifying a
+      // trace file that turns out to predate keyed signing, or a mixed-mode file) -- otherwise
+      // every legitimate unkeyed entry would spuriously fail to verify against the wrong scheme.
+      const expected = computeEntrySignature(
+        entry,
+        scheme === 'hmac-sha256' ? options.secretKey : undefined,
+      );
       if (entry.signature !== expected) {
         issues.push({ traceId: entry.trace_id, reason: 'Signature does not match entry content.' });
       }

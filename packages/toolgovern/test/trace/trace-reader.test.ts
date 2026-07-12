@@ -240,6 +240,28 @@ describe('verifyChain', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('verifies a chain written WITHOUT a key even when the caller supplies a secretKey anyway (regression: a key should never be applied to a sha256:-scheme entry)', async () => {
+      const filePath = await makeTempTraceFile();
+      const writer = new TraceWriter(filePath); // no secretKey -- default unkeyed sha256 scheme
+      await writer.append({
+        sessionId: 's1',
+        agentId: 'a',
+        tool: 'bash',
+        args: { command: 'ls' },
+        decision: 'allow',
+        ruleFired: [],
+        declaredScope: emptyScope,
+      });
+      const entries = await readTrace(filePath);
+      expect(entries[0]?.signature.startsWith('sha256:')).toBe(true);
+      // Passing a secretKey here must not matter -- before the fix, verifyChain always applied
+      // whatever key it was given regardless of the entry's own scheme, which meant every
+      // legitimate unkeyed entry spuriously failed to verify the moment a caller (e.g. the CLI's
+      // --key-file flag) supplied any key at all.
+      const result = verifyChain(entries, { secretKey });
+      expect(result.valid).toBe(true);
+    });
+
     it('reports an issue (does not silently pass) when no key is supplied to verify an hmac-signed entry', async () => {
       const filePath = await makeTempTraceFile();
       const writer = new TraceWriter(filePath, { secretKey });
