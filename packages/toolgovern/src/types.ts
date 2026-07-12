@@ -114,6 +114,11 @@ export interface TraceEntryInput {
   /** Rule IDs that fired for this call. Empty for a clean `allow`. */
   readonly ruleFired: readonly string[];
   readonly declaredScope: ScopeDeclaration;
+  /** Identity of the human who resolved a `require-approval` gate (approved or denied), when the
+   *  `onApprovalRequired` handler can supply one. Omitted entirely -- not `null` -- for calls that
+   *  never went through human approval, so old trace entries and new ones without an identity
+   *  serialize identically. */
+  readonly approvedBy?: string;
 }
 
 /**
@@ -138,4 +143,7 @@ export interface TraceEntry {
   readonly declared_scope: ScopeDeclaration;
   readonly signature: string;
   readonly prior_trace_id: string | null;
+  /** Identity of the human who resolved a `require-approval` gate, when supplied. Absent for
+   *  calls that never went through human approval. */
+  readonly approved_by?: string;
 }
