@@ -5,4 +5,5 @@ export {
   type GovernToolOptions,
   type GateDecisionInfo,
   type ApprovalHandler,
+  type ApprovalOutcome,
 } from './onToolCall.js';
