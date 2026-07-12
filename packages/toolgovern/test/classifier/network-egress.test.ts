@@ -22,6 +22,16 @@ function fires(
   return rule.evaluate(ctx(args, network)) !== null;
 }
 
+function decisionOf(
+  ruleId: string,
+  args: Record<string, unknown>,
+  network: ScopeDeclaration['network'],
+): string | undefined {
+  const rule = networkEgressRules.find((r) => r.id === ruleId);
+  if (!rule) throw new Error(`No such rule: ${ruleId}`);
+  return rule.evaluate(ctx(args, network))?.decision;
+}
+
 describe('TG03 undeclared network egress', () => {
   describe('TG03-network-disabled', () => {
     it('flags any host when network scope is false', () =>
@@ -56,6 +66,54 @@ describe('TG03 undeclared network egress', () => {
       expect(fires('TG03-raw-ip-literal', { host: 'example.com' }, ['example.com'])).toBe(false));
     it('does not flag an allowlisted IP literal', () =>
       expect(fires('TG03-raw-ip-literal', { host: '203.0.113.5' }, ['203.0.113.5'])).toBe(false));
+    it('requires approval for a public IP literal, not deny', () =>
+      expect(decisionOf('TG03-raw-ip-literal', { host: '203.0.113.5' }, ['example.com'])).toBe(
+        'require-approval',
+      ));
+
+    describe('IPv6 literals', () => {
+      it('flags a bracketed IPv6 loopback literal', () =>
+        expect(fires('TG03-raw-ip-literal', { host: '[::1]' }, ['example.com'])).toBe(true));
+      it('flags a bare IPv6 loopback literal', () =>
+        expect(fires('TG03-raw-ip-literal', { host: '::1' }, ['example.com'])).toBe(true));
+      it('flags an IPv6 link-local literal (fe80::/10)', () =>
+        expect(fires('TG03-raw-ip-literal', { host: 'fe80::1' }, ['example.com'])).toBe(true));
+      it('flags an IPv6 unique-local literal (fc00::/7)', () =>
+        expect(fires('TG03-raw-ip-literal', { host: 'fc00::1' }, ['example.com'])).toBe(true));
+      it('does not flag a domain name that merely contains colons in an unrelated field', () =>
+        expect(fires('TG03-raw-ip-literal', { host: 'example.com' }, ['example.com'])).toBe(
+          false,
+        ));
+    });
+
+    describe('loopback/private/cloud-metadata targets are denied, not just flagged for approval', () => {
+      it('denies the AWS/GCP/Azure cloud-metadata IPv4 address', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: '169.254.169.254' }, ['example.com'])).toBe(
+          'deny',
+        ));
+      it('denies an IPv4 loopback target', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: '127.0.0.1' }, ['example.com'])).toBe(
+          'deny',
+        ));
+      it('denies an RFC1918 private IPv4 target', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: '10.0.0.5' }, ['example.com'])).toBe(
+          'deny',
+        ));
+      it('denies an IPv6 loopback target', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: '::1' }, ['example.com'])).toBe('deny'));
+      it('denies an IPv6 link-local target', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: 'fe80::1' }, ['example.com'])).toBe(
+          'deny',
+        ));
+      it('denies an IPv4-mapped IPv6 literal that resolves into the metadata range', () =>
+        expect(
+          decisionOf('TG03-raw-ip-literal', { host: '::ffff:169.254.169.254' }, ['example.com']),
+        ).toBe('deny'));
+      it('still honors an explicit allowlist entry for a private IP, even though it is private', () =>
+        expect(fires('TG03-raw-ip-literal', { host: '169.254.169.254' }, ['169.254.169.254'])).toBe(
+          false,
+        ));
+    });
   });
 
   describe('TG03-non-standard-port', () => {
@@ -99,6 +157,57 @@ describe('TG03 undeclared network egress', () => {
       expect(
         fires('TG03-known-paste-relay', { url: 'https://transfer.sh/abc' }, ['transfer.sh']),
       ).toBe(false));
+  });
+
+  describe('nested argument host extraction (SSRF via nested MCP tool payloads)', () => {
+    it('finds a host buried one level deep in a nested object', () =>
+      expect(
+        fires(
+          'TG03-host-not-in-scope',
+          { params: { url: 'https://attacker.io/x' } },
+          ['example.com'],
+        ),
+      ).toBe(true));
+    it('finds a host buried several levels deep in nested objects', () =>
+      expect(
+        fires(
+          'TG03-host-not-in-scope',
+          { params: { target: { request: { host: 'attacker.io' } } } },
+          ['example.com'],
+        ),
+      ).toBe(true));
+    it('finds a host inside an array of nested tool-call payloads', () =>
+      expect(
+        fires(
+          'TG03-host-not-in-scope',
+          { calls: [{ name: 'noop' }, { args: { endpoint: 'attacker.io' } }] },
+          ['example.com'],
+        ),
+      ).toBe(true));
+    it('does not flag when the only nested host is allowlisted', () =>
+      expect(
+        fires(
+          'TG03-host-not-in-scope',
+          { params: { url: 'https://api.example.com/x' } },
+          ['example.com'],
+        ),
+      ).toBe(false));
+    it('still prefers a top-level explicit host over a nested one', () =>
+      expect(
+        fires(
+          'TG03-host-not-in-scope',
+          { url: 'https://api.example.com/x', params: { url: 'https://attacker.io/x' } },
+          ['example.com'],
+        ),
+      ).toBe(false));
+    it('flags a raw IP literal nested inside an MCP tool call payload', () =>
+      expect(
+        decisionOf(
+          'TG03-raw-ip-literal',
+          { toolCall: { params: { target: { host: '169.254.169.254' } } } },
+          ['example.com'],
+        ),
+      ).toBe('deny'));
   });
 
   it('every rule has a unique id and belongs to TG03', () => {
