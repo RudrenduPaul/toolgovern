@@ -144,12 +144,82 @@ describe('governTool', () => {
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line));
-      // The trace records the classifier's decision (require-approval, TG01-sudo) -- the
-      // handler's failure resolves the approval to a denial (see the "fails closed" test above),
-      // but the point of this test is narrower: the entry exists at all. Before the fix, a
-      // throwing handler skipped this trace.append() call entirely.
-      expect(entry.decision).toBe('require-approval');
+      // The point of this test is narrower than what decision gets recorded: the entry exists at
+      // all. Before the fix for "no silent audit gap", a throwing handler skipped this
+      // trace.append() call entirely. A throwing handler fails closed (see the "fails closed"
+      // test above), so the recorded decision is the final outcome -- `deny` -- not the
+      // classifier's original `require-approval` verdict; that distinction is covered by the
+      // "records the final human decision" tests below.
+      expect(entry.decision).toBe('deny');
       expect(entry.rule_fired).toContain('TG01-sudo');
+    });
+
+    it('records the final decision (allow) in the trace after a human approves, not the classifier\'s original require-approval decision', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        trace,
+        onApprovalRequired: () => true,
+      });
+
+      const result = await gated.execute({ command: 'sudo apt-get update' });
+      expect(result).toEqual({ ran: 'sudo apt-get update' });
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      // The classifier's own verdict for this call is `require-approval` -- the trace must record
+      // what the human actually decided (`allow`), not that pre-approval verdict.
+      expect(entry.decision).toBe('allow');
+      expect(entry.rule_fired).toContain('TG01-sudo');
+    });
+
+    it('records the final decision (deny) in the trace after a human denies, not the classifier\'s original require-approval decision', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        trace,
+        onApprovalRequired: () => false,
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      // A denied approval must not be indistinguishable from an approved one in the trace -- both
+      // start from the same `require-approval` classifier verdict, so the recorded `decision` is
+      // the only thing that lets an auditor tell them apart.
+      expect(entry.decision).toBe('deny');
+      expect(entry.rule_fired).toContain('TG01-sudo');
+    });
+
+    it('records approvedBy on the trace entry when the approval handler supplies a human identity', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        trace,
+        onApprovalRequired: () => ({ approved: true, approvedBy: 'alice@example.com' }),
+      });
+
+      await gated.execute({ command: 'sudo apt-get update' });
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(entry.decision).toBe('allow');
+      expect(entry.approved_by).toBe('alice@example.com');
     });
 
     it('supports an async approval handler', async () => {
