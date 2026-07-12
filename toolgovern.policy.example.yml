@@ -1,0 +1,16 @@
+# Example toolgovern policy file. Copy to toolgovern.policy.yml and adjust for your agent.
+# See docs/policy-schema.md for the full field reference.
+
+name: strict-shell
+
+scope:
+  network: false
+  filesystem:
+    - ./workspace
+  credentials: []
+
+defaultDecision: allow
+
+rules:
+  disable: []
+  requireApproval: []
