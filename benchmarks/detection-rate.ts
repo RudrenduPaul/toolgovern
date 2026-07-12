@@ -12,46 +12,88 @@
  */
 
 import { classify } from '../packages/toolgovern/dist/classifier/index.js';
-import { corpus } from './corpus.ts';
+import { corpus, type CorpusCase } from './corpus.ts';
+import type { RuleCategory } from '../packages/toolgovern/dist/types.js';
+
+interface Tally {
+  truePositives: number;
+  falseNegatives: number;
+  trueNegatives: number;
+  falsePositives: number;
+}
+
+function emptyTally(): Tally {
+  return { truePositives: 0, falseNegatives: 0, trueNegatives: 0, falsePositives: 0 };
+}
+
+function rate(numerator: number, denominator: number): number {
+  return denominator > 0 ? (numerator / denominator) * 100 : 0;
+}
+
+function printTally(label: string, t: Tally): void {
+  const riskyTotal = t.truePositives + t.falseNegatives;
+  const benignTotal = t.trueNegatives + t.falsePositives;
+  const detectionRate = rate(t.truePositives, riskyTotal);
+  const falsePositiveRate = rate(t.falsePositives, benignTotal);
+  console.log(
+    `${label.padEnd(8)} detection: ${detectionRate.toFixed(1)}% (${t.truePositives}/${riskyTotal})   false-positive: ${falsePositiveRate.toFixed(1)}% (${t.falsePositives}/${benignTotal})   n=${riskyTotal + benignTotal}`,
+  );
+}
 
 function main(): void {
-  let truePositives = 0;
-  let falseNegatives = 0;
-  let trueNegatives = 0;
-  let falsePositives = 0;
+  const overall = emptyTally();
+  const byCategory = new Map<RuleCategory, Tally>();
 
-  for (const testCase of corpus) {
+  for (const testCase of corpus as readonly CorpusCase[]) {
     const result = classify(testCase.context);
     const flagged = result.decision !== 'allow';
+    // Category-aware: a "risky" case only counts as a true positive if a rule from ITS OWN
+    // category fired, not merely if any rule anywhere fired (a TG02 case that only happens to
+    // also trip a TG03 rule should not inflate TG01's number). Benign cases count a false
+    // positive against whichever category actually fired.
+    const categoryTally = byCategory.get(testCase.category) ?? emptyTally();
+    byCategory.set(testCase.category, categoryTally);
 
     if (testCase.expected === 'risky') {
-      if (flagged) truePositives += 1;
-      else falseNegatives += 1;
+      const ownCategoryFired = result.firedRules.some((r) => r.category === testCase.category);
+      if (ownCategoryFired) {
+        overall.truePositives += 1;
+        categoryTally.truePositives += 1;
+      } else {
+        overall.falseNegatives += 1;
+        categoryTally.falseNegatives += 1;
+      }
     } else {
-      if (flagged) falsePositives += 1;
-      else trueNegatives += 1;
+      if (flagged) {
+        overall.falsePositives += 1;
+        categoryTally.falsePositives += 1;
+      } else {
+        overall.trueNegatives += 1;
+        categoryTally.trueNegatives += 1;
+      }
     }
 
-    const status = flagged === (testCase.expected === 'risky') ? 'OK  ' : 'MISS';
+    const expectedOk =
+      testCase.expected === 'risky'
+        ? result.firedRules.some((r) => r.category === testCase.category)
+        : !flagged;
+    const status = expectedOk ? 'OK  ' : 'MISS';
     const rules = result.firedRules.map((r) => r.ruleId).join(',') || '-';
     console.log(
-      `${status}  [${testCase.expected.padEnd(6)}] ${testCase.label.padEnd(32)} -> ${result.decision.padEnd(16)} (${rules})`,
+      `${status}  [${testCase.category} ${testCase.expected.padEnd(6)}] ${testCase.label.padEnd(70)} -> ${result.decision.padEnd(16)} (${rules})`,
     );
   }
 
-  const riskyTotal = truePositives + falseNegatives;
-  const benignTotal = trueNegatives + falsePositives;
-  const detectionRate = riskyTotal > 0 ? (truePositives / riskyTotal) * 100 : 0;
-  const falsePositiveRate = benignTotal > 0 ? (falsePositives / benignTotal) * 100 : 0;
+  console.log('');
+  console.log('Per-category:');
+  for (const category of ['TG01', 'TG02', 'TG03', 'TG04', 'TG05'] as const) {
+    const t = byCategory.get(category);
+    if (t) printTally(category, t);
+  }
 
   console.log('');
-  console.log(`Corpus size: ${corpus.length} (${riskyTotal} risky, ${benignTotal} benign)`);
-  console.log(
-    `Detection rate (true positives / risky):     ${detectionRate.toFixed(1)}% (${truePositives}/${riskyTotal})`,
-  );
-  console.log(
-    `False positive rate (false positives / benign): ${falsePositiveRate.toFixed(1)}% (${falsePositives}/${benignTotal})`,
-  );
+  console.log('Overall:');
+  printTally('ALL', overall);
 }
 
 main();
