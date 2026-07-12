@@ -132,9 +132,7 @@ describe('TG01 shell/process execution risk', () => {
     it('does not flag find scoped to a specific subdirectory', () =>
       expect(fires('TG01-context-flood', 'find ./src -name "*.ts"')).toBe(false));
     it('does not flag find over a deep, well-scoped absolute path with no -maxdepth', () =>
-      expect(
-        fires('TG01-context-flood', 'find /Users/foo/project/src -name "*.ts"'),
-      ).toBe(false));
+      expect(fires('TG01-context-flood', 'find /Users/foo/project/src -name "*.ts"')).toBe(false));
     it('flags find over a shallow absolute path (/etc) with no -maxdepth', () =>
       expect(fires('TG01-context-flood', 'find /etc -name "*.conf"')).toBe(true));
 
@@ -147,9 +145,7 @@ describe('TG01 shell/process execution risk', () => {
       expect(fires('TG01-context-flood', 'ls -r -la')).toBe(false));
     it('does not flag a plain ls', () => expect(fires('TG01-context-flood', 'ls -la')).toBe(false));
     it('does not flag ls -R over a deep, well-scoped absolute path', () =>
-      expect(
-        fires('TG01-context-flood', 'ls -R /Users/foo/project/small-scoped-dir'),
-      ).toBe(false));
+      expect(fires('TG01-context-flood', 'ls -R /Users/foo/project/small-scoped-dir')).toBe(false));
     it('flags ls -R rooted at a shallow absolute path (/Users)', () =>
       expect(fires('TG01-context-flood', 'ls -R /Users')).toBe(true));
 
@@ -176,15 +172,11 @@ describe('TG01 shell/process execution risk', () => {
 
   describe('TG01-context-flood isUnscopedPath depth handling (false-positive fix)', () => {
     it('does not flag ls -R on a deep, well-scoped absolute path', () =>
-      expect(
-        fires('TG01-context-flood', 'ls -R /Users/foo/project/small-scoped-dir'),
-      ).toBe(false));
+      expect(fires('TG01-context-flood', 'ls -R /Users/foo/project/small-scoped-dir')).toBe(false));
     it('does not flag grep -r on a deep, well-scoped absolute path', () =>
       expect(fires('TG01-context-flood', 'grep -r "TODO" /Users/foo/project/src')).toBe(false));
     it('does not flag find on a deep, well-scoped absolute path with no -maxdepth', () =>
-      expect(
-        fires('TG01-context-flood', 'find /Users/foo/project/src -name "*.ts"'),
-      ).toBe(false));
+      expect(fires('TG01-context-flood', 'find /Users/foo/project/src -name "*.ts"')).toBe(false));
 
     it('still flags a bare root path (/)', () =>
       expect(fires('TG01-context-flood', 'ls -R /')).toBe(true));

@@ -305,7 +305,7 @@ the no-`agentId`-supplied default path) are unaffected.
 | 6   | CLI path-argument traversal                                                    | Reviewed, not applicable, no change needed                                                                           |
 | 7   | Filesystem-scope path canonicalization                                         | Documented known limitation, no fix in v0.1                                                                          |
 | 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                            |
-| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope             |
+| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope              |
 
 Nothing in this document should be read as "toolgovern makes a gated agent session safe." A gated
 call means it was evaluated against the current rule set and, for the classes of bypass covered

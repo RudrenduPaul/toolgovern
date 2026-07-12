@@ -150,13 +150,13 @@ describe('TG02 filesystem scope escalation', () => {
 
   describe('TG02-read-outside-scope', () => {
     it('flags a read outside the declared scope', () =>
-      expect(
-        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }),
-      ).toBe(true));
-    it('flags a get outside the declared scope', () =>
-      expect(fires('TG02-read-outside-scope', { path: '/tmp/secrets.json', operation: 'get' })).toBe(
+      expect(fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' })).toBe(
         true,
       ));
+    it('flags a get outside the declared scope', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: '/tmp/secrets.json', operation: 'get' }),
+      ).toBe(true));
     it('flags a fetch/load outside the declared scope', () =>
       expect(
         fires('TG02-read-outside-scope', { path: '/var/data/report.csv', operation: 'fetch' }),
@@ -166,15 +166,15 @@ describe('TG02 filesystem scope escalation', () => {
         fires('TG02-read-outside-scope', { path: './workspace/notes.txt', operation: 'read' }),
       ).toBe(false));
     it('does not flag a write outside scope (not a read op)', () =>
-      expect(
-        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'write' }),
-      ).toBe(false));
+      expect(fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'write' })).toBe(
+        false,
+      ));
     it('flags a read when no filesystem boundary is declared at all (empty scope means nothing is in scope)', () =>
-      expect(
-        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }, []),
-      ).toBe(true));
+      expect(fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }, [])).toBe(
+        true,
+      ));
 
-    it('flags a read of /etc/passwd for a partial-grant agent (network: true, filesystem: [], credentials: []) -- the exact scenario TG02-read-outside-scope previously no-op\'d on', () => {
+    it("flags a read of /etc/passwd for a partial-grant agent (network: true, filesystem: [], credentials: []) -- the exact scenario TG02-read-outside-scope previously no-op'd on", () => {
       const rule = filesystemScopeRules.find((r) => r.id === 'TG02-read-outside-scope')!;
       const partialGrantCtx: RuleContext = {
         agentId: 'agent-1',
@@ -221,7 +221,7 @@ describe('TG02 filesystem scope escalation', () => {
         fires('TG02-path-traversal', { path: './workspace/sub/dir/file.txt', operation: 'write' }),
       ).toBe(false));
 
-    it('flags a traversal payload embedded in a code-execution tool\'s `code` argument', () =>
+    it("flags a traversal payload embedded in a code-execution tool's `code` argument", () =>
       expect(
         fires('TG02-path-traversal', {
           code: 'with open("../../etc/passwd") as f:\n    data = f.read()\n    print(data)',
@@ -239,9 +239,9 @@ describe('TG02 filesystem scope escalation', () => {
       expect(fires('TG02-path-traversal', { code: 'print(1 + 1)' })).toBe(false));
 
     it('does not flag a clean, non-traversing path embedded in code', () =>
-      expect(
-        fires('TG02-path-traversal', { code: 'open("./workspace/report.txt").read()' }),
-      ).toBe(false));
+      expect(fires('TG02-path-traversal', { code: 'open("./workspace/report.txt").read()' })).toBe(
+        false,
+      ));
   });
 
   describe('TG02-symlink-escape', () => {

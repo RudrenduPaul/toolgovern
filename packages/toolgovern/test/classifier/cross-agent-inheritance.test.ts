@@ -105,7 +105,11 @@ describe('TG05 cross-agent privilege inheritance', () => {
 
     it('also denies a recognizable tool call (e.g. a filesystem path) from a zero-capability sub-agent', () => {
       const registry = new ScopeRegistry();
-      registry.registerRootAgent('coordinator', 's1', { network: false, filesystem: [], credentials: [] });
+      registry.registerRootAgent('coordinator', 's1', {
+        network: false,
+        filesystem: [],
+        credentials: [],
+      });
       registry.spawnSubAgent({
         coordinatorId: 'coordinator',
         subAgentId: 'no-tools-sub',
