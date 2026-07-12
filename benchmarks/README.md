@@ -67,12 +67,18 @@ shell-grammar parsing, TG06/TG07 session-level anomaly detection, which are not 
 $ npm run bench:latency
 ```
 
-| Run       | Mean               | p50                | p95                | p99                |
-| --------- | ------------------ | ------------------ | ------------------ | ------------------ |
-| 1         | 24.89 us           | 22.17 us           | 37.08 us           | 90.83 us           |
-| 2         | 23.06 us           | 20.25 us           | 38.38 us           | 78.42 us           |
-| 3         | 26.02 us           | 22.54 us           | 45.88 us           | 92.71 us           |
-| **Range** | **23.06-26.02 us** | **20.25-22.54 us** | **37.08-45.88 us** | **78.42-92.71 us** |
+| Run       | Mean             | p50              | p95              | p99                |
+| --------- | ---------------- | ---------------- | ---------------- | ------------------ |
+| 1         | 7.04 us          | 6.63 us          | 9.54 us          | 16.04 us           |
+| 2         | 6.74 us          | 6.50 us          | 8.92 us          | 11.46 us           |
+| 3         | 6.82 us          | 6.54 us          | 9.04 us          | 12.88 us           |
+| **Range** | **6.74-7.04 us** | **6.50-6.63 us** | **8.92-9.54 us** | **11.46-16.04 us** |
+
+An earlier 3-run set on the same machine, captured right after a burst of `npm run build` /
+`npm run test:coverage` invocations, measured noticeably higher (mean 23-26 us, p99 78-93 us) --
+wall-clock microbenchmarks are sensitive to whatever else the machine is doing at the moment, which
+is exactly why this file says "run it yourself" rather than asserting a single portable number.
+The table above is the most recent measurement and is what's cited in the top-level README.
 
 This measures `classify()` alone -- every call runs the full 31-rule pack (there is no
 per-category dispatch or short-circuiting), so latency does not vary meaningfully by which category
