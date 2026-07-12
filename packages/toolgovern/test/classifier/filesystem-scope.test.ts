@@ -169,10 +169,24 @@ describe('TG02 filesystem scope escalation', () => {
       expect(
         fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'write' }),
       ).toBe(false));
-    it('does not flag when no filesystem boundary is declared at all', () =>
+    it('flags a read when no filesystem boundary is declared at all (empty scope means nothing is in scope)', () =>
       expect(
         fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }, []),
-      ).toBe(false));
+      ).toBe(true));
+
+    it('flags a read of /etc/passwd for a partial-grant agent (network: true, filesystem: [], credentials: []) -- the exact scenario TG02-read-outside-scope previously no-op\'d on', () => {
+      const rule = filesystemScopeRules.find((r) => r.id === 'TG02-read-outside-scope')!;
+      const partialGrantCtx: RuleContext = {
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        tool: 'fs.readFile',
+        args: { path: '/etc/passwd', operation: 'read' },
+        scope: { network: true, filesystem: [], credentials: [] },
+      };
+      const result = rule.evaluate(partialGrantCtx);
+      expect(result).not.toBeNull();
+      expect(['deny', 'require-approval']).toContain(result?.decision);
+    });
     it('infers a read from a tool name containing "read" when no operation key is present', () => {
       const rule = filesystemScopeRules.find((r) => r.id === 'TG02-read-outside-scope')!;
       const ctxWithTool: RuleContext = {
