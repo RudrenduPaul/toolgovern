@@ -7,6 +7,19 @@
 
 export type Decision = 'allow' | 'deny' | 'require-approval';
 
+/**
+ * Where an `agentId` came from when a gate decision was made: `'explicit'` means the caller
+ * passed `options.agentId` to `governTool()` directly; `'fallback'` means no `agentId` was
+ * supplied and toolgovern used its default (`'default-agent'`). This is provenance, not proof --
+ * an `'explicit'` value is still just whatever string the caller happened to pass. toolgovern does
+ * not cryptographically verify that a caller actually is the agent it claims to be (see
+ * `docs/security-model.md`, "Agent identity is caller-asserted, not cryptographically verified").
+ * Recording the source at least tells an auditor whether a decision was made against a
+ * caller-asserted identity or a fallback default, which is the honest scope of what this field
+ * gives you.
+ */
+export type AgentIdSource = 'explicit' | 'fallback';
+
 /** The five v0.1 risk-rule categories. TG06/TG07 need cross-call session state and ship later. */
 export type RuleCategory = 'TG01' | 'TG02' | 'TG03' | 'TG04' | 'TG05';
 
@@ -119,6 +132,10 @@ export interface TraceEntryInput {
    *  never went through human approval, so old trace entries and new ones without an identity
    *  serialize identically. */
   readonly approvedBy?: string;
+  /** How `agentId` was resolved for this call (`'explicit'` vs. `'fallback'`). Optional so direct
+   *  `TraceWriter.append()` callers that predate this field (or that have no source to report)
+   *  are unaffected; `governTool()` always supplies it. See `AgentIdSource`. */
+  readonly agentIdSource?: AgentIdSource;
 }
 
 /**
@@ -141,6 +158,11 @@ export interface TraceEntry {
   readonly decision: Decision;
   readonly rule_fired: readonly string[];
   readonly declared_scope: ScopeDeclaration;
+  /** How `agent_id` was resolved for this call -- see `AgentIdSource`. Optional for the same
+   *  backward-compatibility reason as `TraceEntryInput.agentIdSource`; entries written before this
+   *  field existed, or by a direct `TraceWriter.append()` caller that did not supply it, simply
+   *  omit it rather than carrying a fabricated value. */
+  readonly agent_id_source?: AgentIdSource;
   readonly signature: string;
   readonly prior_trace_id: string | null;
   /** Identity of the human who resolved a `require-approval` gate, when supplied. Absent for
