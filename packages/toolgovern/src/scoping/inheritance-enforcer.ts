@@ -47,6 +47,20 @@ function intersectCredentials(
 }
 
 /**
+ * True if `scope` carries no capability at all -- no network access (`false`, or an allowlist
+ * with zero entries -- both mean "cannot reach any host"), no filesystem prefix, and no
+ * credential. An agent whose *granted* scope is this empty cannot legitimately make any tool
+ * call, regardless of what the call's arguments happen to look like. This is distinct from an
+ * agent that simply has no filesystem scope but does have network/credential access -- only the
+ * fully-empty grant means "zero tool capability."
+ */
+export function hasZeroCapability(scope: ScopeDeclaration): boolean {
+  const hasNetwork =
+    scope.network === true || (Array.isArray(scope.network) && scope.network.length > 0);
+  return !hasNetwork && scope.filesystem.length === 0 && scope.credentials.length === 0;
+}
+
+/**
  * Pure function: given a coordinator's own effective scope and a sub-agent's requested scope,
  * returns the scope actually granted. Never returns anything the coordinator itself does not
  * have, and never grants anything the sub-agent did not explicitly request.
@@ -113,5 +127,17 @@ export class ScopeRegistry implements ScopeRegistryReader {
 
   has(agentId: string): boolean {
     return this.records.has(agentId);
+  }
+
+  /**
+   * True if `agentId` is registered and its granted scope has zero capability (see
+   * `hasZeroCapability`). An unregistered agent is not "zero capability" here -- that case is
+   * covered separately by `TG05-unregistered-sub-agent`, so this only reports on agents the
+   * registry actually has a grant on record for, whether that grant came out empty at spawn time
+   * or was reduced to empty by a later coordinator re-registration.
+   */
+  isZeroCapability(agentId: string): boolean {
+    const record = this.records.get(agentId);
+    return record !== undefined && hasZeroCapability(record.grantedScope);
   }
 }
