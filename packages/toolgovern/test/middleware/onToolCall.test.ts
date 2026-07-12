@@ -104,6 +104,54 @@ describe('governTool', () => {
       );
     });
 
+    it('fails closed, as a proper ToolGovernDenialError, when the handler throws synchronously', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        onApprovalRequired: () => {
+          throw new Error('handler blew up');
+        },
+      });
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+    });
+
+    it('fails closed when the handler returns a rejected promise', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        onApprovalRequired: () => Promise.reject(new Error('async handler blew up')),
+      });
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+    });
+
+    it('still writes a trace entry when the approval handler throws (no silent audit gap)', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        trace,
+        onApprovalRequired: () => {
+          throw new Error('handler blew up');
+        },
+      });
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      // The trace records the classifier's decision (require-approval, TG01-sudo) -- the
+      // handler's failure resolves the approval to a denial (see the "fails closed" test above),
+      // but the point of this test is narrower: the entry exists at all. Before the fix, a
+      // throwing handler skipped this trace.append() call entirely.
+      expect(entry.decision).toBe('require-approval');
+      expect(entry.rule_fired).toContain('TG01-sudo');
+    });
+
     it('supports an async approval handler', async () => {
       const gated = governTool(makeShellTool(), {
         scope: { network: false, filesystem: ['./workspace'], credentials: [] },

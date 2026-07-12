@@ -52,7 +52,11 @@ export function parseArgs(argv: readonly string[]): ParsedFlags {
 export const USAGE = [
   'Usage:',
   '  toolgovern-cli validate <policy-file>',
-  '  toolgovern-cli audit <trace-file> [--since <window>] [--decision <allow|deny|require-approval>] [--agent <id>] [--rule <ruleId>] [--verify-chain]',
+  '  toolgovern-cli audit <trace-file> [--since <window>] [--decision <allow|deny|require-approval>] [--agent <id>] [--rule <ruleId>] [--verify-chain] [--key-file <path>]',
+  '',
+  '  --key-file  Path to the secret key file used to verify hmac-sha256-signed trace entries.',
+  '              Only needed if the trace was written with a TraceWriter secretKey. Entries',
+  '              signed with the default unkeyed sha256 scheme verify without it.',
   '',
 ].join('\n');
 
@@ -105,7 +109,19 @@ export async function auditCommand(
   let stdout = '';
 
   if (flags['verify-chain']) {
-    const verification = verifyChain(entries);
+    let secretKey: Buffer | undefined;
+    if (typeof flags['key-file'] === 'string') {
+      try {
+        secretKey = readFileSync(flags['key-file']);
+      } catch (error) {
+        return {
+          code: 1,
+          stdout: '',
+          stderr: `Failed to read --key-file "${flags['key-file']}": ${(error as Error).message}\n`,
+        };
+      }
+    }
+    const verification = verifyChain(entries, { secretKey });
     if (!verification.valid) {
       const stderr = [
         `CHAIN INVALID  ${traceFile}`,

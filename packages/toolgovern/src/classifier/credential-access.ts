@@ -7,7 +7,13 @@
  */
 
 import type { Rule, RuleContext, RuleMatch } from '../types.js';
-import { extractCommand, extractCredentialName, extractPath, stringifyArgs } from './util.js';
+import {
+  extractCommand,
+  extractCredentialName,
+  extractPath,
+  normalizeForMatch,
+  stringifyArgs,
+} from './util.js';
 
 const category = 'TG04' as const;
 
@@ -28,9 +34,16 @@ function isCredentialGranted(identifier: string, credentials: readonly string[])
   });
 }
 
+/** `text` is normalized (see `normalizeForMatch`) before pattern matching, so the same
+ *  quote-splitting / `$IFS` / invisible-Unicode tricks that could dodge TG01's shell patterns
+ *  cannot be used to dodge these credential-path patterns either. `path`, when present, is left
+ *  as-is: it feeds a declared-scope allowlist membership check, not a regex match, so
+ *  obfuscation-normalization semantics do not apply to it the same way. */
 function pathOrCommandText(ctx: RuleContext): { path: string | undefined; text: string } {
   const path = extractPath(ctx.args);
-  const text = (path ?? extractCommand(ctx.args) ?? stringifyArgs(ctx.args)).toLowerCase();
+  const text = normalizeForMatch(
+    path ?? extractCommand(ctx.args) ?? stringifyArgs(ctx.args),
+  ).toLowerCase();
   return { path, text };
 }
 
@@ -98,7 +111,9 @@ const keychainAccess: Rule = {
   category,
   description: 'Access to an OS-level keychain/secret store.',
   evaluate(ctx) {
-    const text = (extractCommand(ctx.args) ?? stringifyArgs(ctx.args)).toLowerCase();
+    const text = normalizeForMatch(
+      extractCommand(ctx.args) ?? stringifyArgs(ctx.args),
+    ).toLowerCase();
     const found = text.match(/(security\s+find-generic-password|secret-tool\s+lookup|keytar)/);
     if (!found) return null;
     return match(this, 'deny', 'Access to OS keychain/secret-store credential material.', found[0]);
@@ -110,7 +125,9 @@ const bulkEnvDump: Rule = {
   category,
   description: 'Unfiltered dump of the full process environment.',
   evaluate(ctx) {
-    const text = (extractCommand(ctx.args) ?? '').toLowerCase().trim();
+    const text = normalizeForMatch(extractCommand(ctx.args) ?? '')
+      .toLowerCase()
+      .trim();
     const found = text.match(/^(env|printenv|export\s+-p)\s*$/);
     if (!found) return null;
     return match(this, 'require-approval', 'Bulk, unfiltered process-environment dump.', found[0]);

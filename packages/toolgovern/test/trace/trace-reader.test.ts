@@ -188,6 +188,122 @@ describe('verifyChain', () => {
     expect(result.issues[0]?.reason).toMatch(/Signature does not match/);
   });
 
+  it(
+    'documents the residual limitation of the unkeyed sha256 scheme: an attacker who edits an ' +
+      'entry AND recomputes its signature is NOT caught, because the hash is reproducible by ' +
+      'anyone -- see docs/security-model.md',
+    async () => {
+      const filePath = await makeTempTraceFile();
+      const writer = new TraceWriter(filePath);
+      await writer.append({
+        sessionId: 's1',
+        agentId: 'a',
+        tool: 'bash',
+        args: { command: 'ls' },
+        decision: 'allow',
+        ruleFired: [],
+        declaredScope: emptyScope,
+      });
+      const [entry] = await readTrace(filePath);
+      const tamperedContent = { ...entry!, decision: 'deny' as const };
+      const { computeEntrySignature } = await import('../../src/trace/trace-writer.js');
+      const forged = { ...tamperedContent, signature: computeEntrySignature(tamperedContent) };
+
+      const result = verifyChain([forged]);
+      // This is the documented v0.1 limitation, not a passing "security" assertion: without a
+      // secret key, anyone with write access to the trace file can recompute a valid signature
+      // after tampering. The fix is `TraceWriter`'s optional `secretKey` (hmac-sha256 signing) --
+      // see the 'hmac-sha256 keyed signing' tests below for the same scenario WITH a key, where
+      // the forgery is caught.
+      expect(result.valid).toBe(true);
+    },
+  );
+
+  describe('hmac-sha256 keyed signing', () => {
+    const secretKey = Buffer.from('test-only-secret-key-do-not-use-in-real-deployments');
+
+    it('verifies a chain written with a secret key when the same key is supplied', async () => {
+      const filePath = await makeTempTraceFile();
+      const writer = new TraceWriter(filePath, { secretKey });
+      await writer.append({
+        sessionId: 's1',
+        agentId: 'a',
+        tool: 'bash',
+        args: { command: 'ls' },
+        decision: 'allow',
+        ruleFired: [],
+        declaredScope: emptyScope,
+      });
+      const entries = await readTrace(filePath);
+      expect(entries[0]?.signature.startsWith('hmac-sha256:')).toBe(true);
+      const result = verifyChain(entries, { secretKey });
+      expect(result.valid).toBe(true);
+    });
+
+    it('reports an issue (does not silently pass) when no key is supplied to verify an hmac-signed entry', async () => {
+      const filePath = await makeTempTraceFile();
+      const writer = new TraceWriter(filePath, { secretKey });
+      await writer.append({
+        sessionId: 's1',
+        agentId: 'a',
+        tool: 'bash',
+        args: { command: 'ls' },
+        decision: 'allow',
+        ruleFired: [],
+        declaredScope: emptyScope,
+      });
+      const entries = await readTrace(filePath);
+      const result = verifyChain(entries);
+      expect(result.valid).toBe(false);
+      expect(result.issues[0]?.reason).toMatch(/no secretKey was supplied/);
+    });
+
+    it('catches tampering that the unkeyed scheme would miss: an attacker without the key cannot forge a valid hmac signature', async () => {
+      const filePath = await makeTempTraceFile();
+      const writer = new TraceWriter(filePath, { secretKey });
+      await writer.append({
+        sessionId: 's1',
+        agentId: 'a',
+        tool: 'bash',
+        args: { command: 'ls' },
+        decision: 'allow',
+        ruleFired: [],
+        declaredScope: emptyScope,
+      });
+      const [entry] = await readTrace(filePath);
+      const tamperedContent = { ...entry!, decision: 'deny' as const };
+      const { computeEntrySignature } = await import('../../src/trace/trace-writer.js');
+      // The attacker doesn't have the real secret key, so they sign with a guessed/wrong one.
+      const forged = {
+        ...tamperedContent,
+        signature: computeEntrySignature(tamperedContent, Buffer.from('wrong-key')),
+      };
+
+      const result = verifyChain([forged], { secretKey });
+      expect(result.valid).toBe(false);
+      expect(result.issues[0]?.reason).toMatch(/Signature does not match/);
+    });
+
+    it('rejects an entry with an unrecognized signature scheme', () => {
+      const entry: TraceEntry = {
+        trace_id: 't1',
+        timestamp: '2026-07-11T10:00:00.000Z',
+        session_id: 's1',
+        agent_id: 'a',
+        tool: 'bash',
+        arguments_hash: 'sha256:aaa',
+        decision: 'allow',
+        rule_fired: [],
+        declared_scope: emptyScope,
+        signature: 'md5:deadbeef',
+        prior_trace_id: null,
+      };
+      const result = verifyChain([entry]);
+      expect(result.valid).toBe(false);
+      expect(result.issues[0]?.reason).toMatch(/Unrecognized signature scheme/);
+    });
+  });
+
   it('detects a broken prior_trace_id chain', async () => {
     const filePath = await makeTempTraceFile();
     const writer = new TraceWriter(filePath);

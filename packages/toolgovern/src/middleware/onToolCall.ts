@@ -93,7 +93,13 @@ async function resolveApproval(
   timeoutMs: number,
 ): Promise<boolean> {
   if (!handler) return false;
-  const handlerResult = Promise.resolve().then(() => handler(info));
+  // A handler that throws (sync or async) must fail closed exactly like "no handler" or "timed
+  // out" -- it must NOT propagate out of governTool(), because that would skip the trace-append
+  // call below and surface a raw, unrelated error instead of ToolGovernDenialError. An
+  // unanswerable approval request is a denial, not an application crash.
+  const handlerResult = Promise.resolve()
+    .then(() => handler(info))
+    .catch(() => false);
   const timeout = new Promise<boolean>((resolve) => {
     setTimeout(() => resolve(false), timeoutMs);
   });
