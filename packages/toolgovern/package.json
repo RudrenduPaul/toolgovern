@@ -1,0 +1,44 @@
+{
+  "name": "toolgovern",
+  "version": "0.1.0",
+  "description": "Runtime governance middleware for AI agent tool calls -- gate shell, filesystem, network, and credential access before a tool executes.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RudrenduPaul/toolgovern.git",
+    "directory": "packages/toolgovern"
+  },
+  "keywords": [
+    "ai-agents",
+    "agent-security",
+    "runtime-governance",
+    "tool-calling",
+    "llm-security"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --strict",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
