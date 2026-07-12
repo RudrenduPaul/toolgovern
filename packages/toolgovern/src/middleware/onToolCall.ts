@@ -23,6 +23,7 @@ import { classify } from '../classifier/index.js';
 import type { ScopeRegistry } from '../scoping/inheritance-enforcer.js';
 import { isValidAgentId } from '../scoping/scope-declaration.js';
 import type { TraceWriter } from '../trace/trace-writer.js';
+import { IdempotencyCache, type IdempotencyOptions } from './idempotency-cache.js';
 
 export interface ToolDefinition<
   Args extends Record<string, unknown> = Record<string, unknown>,
@@ -85,6 +86,19 @@ export interface GovernToolOptions extends Policy {
    * unchanged, so this is fully backward-compatible.
    */
   readonly onToolResult?: (result: unknown, ctx: RuleContext) => unknown;
+  /** Optional in-memory retry dedup for tools with real-world side effects (payments, emails,
+   *  trades) where a caller retrying after a timeout or transient failure must not cause the
+   *  effect to fire twice. Omitted entirely -- the default -- leaves this middleware's behavior
+   *  completely unchanged: every call still executes independently. When enabled, an identical
+   *  retry (same tool name + same arguments) within `ttlMs` of a completed call returns the
+   *  cached result instead of calling `tool.execute()` again. This only affects the final
+   *  `tool.execute()` call, not classification: the classifier still evaluates every call and
+   *  `trace`/`onDecision` still fire every time, so the gate/audit trail is unaffected.
+   *
+   *  This is an in-memory-only first pass, not a distributed/persistent cache: it does not
+   *  survive a process restart and is not shared across multiple processes or replicas. See
+   *  `idempotency-cache.ts` for the full scope and limitations. */
+  readonly idempotency?: IdempotencyOptions;
 }
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 30_000;
@@ -189,6 +203,11 @@ export function governTool<Args extends Record<string, unknown>, Result>(
   const downgradeToApproval = options.rules?.requireApproval ?? [];
   const defaultDecision = options.defaultDecision ?? 'allow';
   const approvalTimeoutMs = options.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+  // Scoped to this one gated tool instance -- never shared globally across every gate in a
+  // process. See idempotency-cache.ts for why this is in-memory-only, not a full solution.
+  const idempotencyCache = options.idempotency?.enabled
+    ? new IdempotencyCache<Result>(options.idempotency.ttlMs)
+    : undefined;
 
   return {
     name: tool.name,
@@ -260,12 +279,17 @@ export function governTool<Args extends Record<string, unknown>, Result>(
         throw new ToolGovernDenialError(info);
       }
 
-      // A thrown/rejected `execute()` is caught here rather than left to propagate directly, so
-      // `onToolResult` (when provided) gets a chance to see it -- e.g. to redact a leaked file
-      // path in an error message -- before anything reaches the caller. With no `onToolResult`,
-      // behavior is unchanged: a caught error is simply rethrown.
+      // A thrown/rejected `execute()` (whether run directly or via the idempotency cache below)
+      // is caught here rather than left to propagate directly, so `onToolResult` (when provided)
+      // gets a chance to see it -- e.g. to redact a leaked file path in an error message --
+      // before anything reaches the caller. With no `onToolResult`, behavior is unchanged: a
+      // caught error is simply rethrown.
       try {
-        const result = await tool.execute(args);
+        const result = idempotencyCache
+          ? await idempotencyCache.claimIfAbsent(IdempotencyCache.keyFor(tool.name, args), () =>
+              Promise.resolve(tool.execute(args)),
+            )
+          : await tool.execute(args);
         return options.onToolResult
           ? (options.onToolResult(result, ruleContext) as Result)
           : result;
