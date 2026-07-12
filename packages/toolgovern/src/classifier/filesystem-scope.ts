@@ -14,6 +14,7 @@ const category = 'TG02' as const;
 const WRITE_OPS = new Set(['write', 'create', 'append', 'put', 'save']);
 const DELETE_OPS = new Set(['delete', 'remove', 'unlink', 'rm', 'rmdir']);
 const CHMOD_OPS = new Set(['chmod', 'chown', 'setpermissions', 'set_permissions']);
+const READ_OPS = new Set(['read', 'get', 'load', 'fetch', 'cat', 'open']);
 const SENSITIVE_SYSTEM_PREFIXES = ['/etc', '/usr', '/bin', '/sbin', '/system', '/private/etc'];
 
 function isWithinScope(path: string, filesystem: readonly string[]): boolean {
@@ -89,6 +90,32 @@ const chmodOutsideScope: Rule = {
   },
 };
 
+const readOutsideScope: Rule = {
+  id: 'TG02-read-outside-scope',
+  category,
+  description:
+    "A read targets a path outside the caller's declared filesystem scope. Matches the " +
+    'write/delete/chmod siblings in this file: an empty `filesystem` scope means nothing is in ' +
+    'scope, so any concrete path read is out of scope and flagged. A caller with `filesystem: []` ' +
+    'but a non-empty network or credential grant (a realistic partial grant) still gets its reads ' +
+    'checked here -- it is not "zero capability" and TG05 zero-capability denial does not cover ' +
+    'it, so this rule must not no-op just because no filesystem prefix was declared.',
+  evaluate(ctx) {
+    const path = extractPath(ctx.args);
+    if (!path) return null;
+    const op =
+      extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('read') ? 'read' : '');
+    if (!READ_OPS.has(op)) return null;
+    if (isWithinScope(path, ctx.scope.filesystem)) return null;
+    return match(
+      this,
+      'require-approval',
+      `Read target "${path}" is outside the declared filesystem scope.`,
+      path,
+    );
+  },
+};
+
 const pathTraversal: Rule = {
   id: 'TG02-path-traversal',
   category,
@@ -145,6 +172,7 @@ export const filesystemScopeRules: readonly Rule[] = [
   writeOutsideScope,
   deleteOutsideScope,
   chmodOutsideScope,
+  readOutsideScope,
   pathTraversal,
   symlinkEscape,
   sensitiveSystemPath,

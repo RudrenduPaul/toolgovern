@@ -51,6 +51,34 @@ describe('TG02 filesystem scope escalation', () => {
       expect(
         fires('TG02-write-outside-scope', { path: '/tmp/export.csv', operation: 'read' }),
       ).toBe(false));
+
+    it('flags a write outside scope embedded in a `code` argument (inferred from open mode)', () =>
+      expect(
+        fires('TG02-write-outside-scope', { code: 'open("/tmp/export.csv", "w").write(data)' }),
+      ).toBe(true));
+
+    it('does not flag a write embedded in code that targets an in-scope path', () =>
+      expect(
+        fires('TG02-write-outside-scope', {
+          code: 'open("./workspace/out.txt", "w").write(data)',
+        }),
+      ).toBe(false));
+
+    it('does not flag a plain read embedded in code (no write-mode/write-call detected)', () => {
+      // Uses a neutral tool name -- the shared `fires()` harness defaults to `fs.write`, whose
+      // name alone would satisfy the rule's own "no operation found, but the tool name says
+      // write" fallback and defeat the point of this test (that a code-embedded *read* isn't
+      // misread as a write).
+      const rule = filesystemScopeRules.find((r) => r.id === 'TG02-write-outside-scope')!;
+      const readCtx: RuleContext = {
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        tool: 'exec.run_code',
+        args: { code: 'open("/tmp/export.csv").read()' },
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+      };
+      expect(rule.evaluate(readCtx)).toBeNull();
+    });
   });
 
   describe('TG02-delete-outside-scope', () => {
@@ -74,6 +102,23 @@ describe('TG02 filesystem scope escalation', () => {
       expect(fires('TG02-delete-outside-scope', { path: '/etc/passwd', operation: 'write' })).toBe(
         false,
       ));
+
+    it('flags a delete outside scope embedded in a `code` argument (os.remove)', () =>
+      expect(
+        fires('TG02-delete-outside-scope', { code: 'import os\nos.remove("/etc/passwd")' }),
+      ).toBe(true));
+
+    it('flags a delete outside scope embedded in a `code` argument (shutil.rmtree)', () =>
+      expect(
+        fires('TG02-delete-outside-scope', {
+          code: 'import shutil\nshutil.rmtree("/var/data")',
+        }),
+      ).toBe(true));
+
+    it('does not flag a delete embedded in code that targets an in-scope path', () =>
+      expect(
+        fires('TG02-delete-outside-scope', { code: 'import os\nos.remove("./workspace/tmp.txt")' }),
+      ).toBe(false));
   });
 
   describe('TG02-chmod-outside-scope', () => {
@@ -89,6 +134,77 @@ describe('TG02 filesystem scope escalation', () => {
       expect(
         fires('TG02-chmod-outside-scope', { path: './workspace/run.sh', operation: 'chmod' }),
       ).toBe(false));
+
+    it('flags a chmod outside scope embedded in a `code` argument (os.chmod)', () =>
+      expect(
+        fires('TG02-chmod-outside-scope', { code: 'import os\nos.chmod("/usr/bin/sudo", 0o777)' }),
+      ).toBe(true));
+
+    it('does not flag a chmod embedded in code that targets an in-scope path', () =>
+      expect(
+        fires('TG02-chmod-outside-scope', {
+          code: 'import os\nos.chmod("./workspace/run.sh", 0o755)',
+        }),
+      ).toBe(false));
+  });
+
+  describe('TG02-read-outside-scope', () => {
+    it('flags a read outside the declared scope', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }),
+      ).toBe(true));
+    it('flags a get outside the declared scope', () =>
+      expect(fires('TG02-read-outside-scope', { path: '/tmp/secrets.json', operation: 'get' })).toBe(
+        true,
+      ));
+    it('flags a fetch/load outside the declared scope', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: '/var/data/report.csv', operation: 'fetch' }),
+      ).toBe(true));
+    it('does not flag a read inside the declared scope', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: './workspace/notes.txt', operation: 'read' }),
+      ).toBe(false));
+    it('does not flag a write outside scope (not a read op)', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'write' }),
+      ).toBe(false));
+    it('flags a read when no filesystem boundary is declared at all (empty scope means nothing is in scope)', () =>
+      expect(
+        fires('TG02-read-outside-scope', { path: '/etc/passwd', operation: 'read' }, []),
+      ).toBe(true));
+
+    it('flags a read of /etc/passwd for a partial-grant agent (network: true, filesystem: [], credentials: []) -- the exact scenario TG02-read-outside-scope previously no-op\'d on', () => {
+      const rule = filesystemScopeRules.find((r) => r.id === 'TG02-read-outside-scope')!;
+      const partialGrantCtx: RuleContext = {
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        tool: 'fs.readFile',
+        args: { path: '/etc/passwd', operation: 'read' },
+        scope: { network: true, filesystem: [], credentials: [] },
+      };
+      const result = rule.evaluate(partialGrantCtx);
+      expect(result).not.toBeNull();
+      expect(['deny', 'require-approval']).toContain(result?.decision);
+    });
+    it('infers a read from a tool name containing "read" when no operation key is present', () => {
+      const rule = filesystemScopeRules.find((r) => r.id === 'TG02-read-outside-scope')!;
+      const ctxWithTool: RuleContext = {
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        tool: 'fs.readFile',
+        args: { path: '/etc/passwd' },
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+      };
+      expect(rule.evaluate(ctxWithTool)).not.toBeNull();
+    });
+    it('flags a read-only payload embedded in a `code` argument reading outside scope', () =>
+      expect(
+        fires('TG02-read-outside-scope', {
+          code: 'open("/etc/passwd").read()',
+          operation: 'read',
+        }),
+      ).toBe(true));
   });
 
   describe('TG02-path-traversal', () => {
@@ -103,6 +219,28 @@ describe('TG02 filesystem scope escalation', () => {
     it('does not flag a clean nested path', () =>
       expect(
         fires('TG02-path-traversal', { path: './workspace/sub/dir/file.txt', operation: 'write' }),
+      ).toBe(false));
+
+    it('flags a traversal payload embedded in a code-execution tool\'s `code` argument', () =>
+      expect(
+        fires('TG02-path-traversal', {
+          code: 'with open("../../etc/passwd") as f:\n    data = f.read()\n    print(data)',
+        }),
+      ).toBe(true));
+
+    it('flags a Node-style traversal payload embedded in `code`', () =>
+      expect(
+        fires('TG02-path-traversal', {
+          code: "const fs = require('fs');\nfs.readFileSync('../../../etc/shadow', 'utf8');",
+        }),
+      ).toBe(true));
+
+    it('does not flag a code argument with no path-like literal at all', () =>
+      expect(fires('TG02-path-traversal', { code: 'print(1 + 1)' })).toBe(false));
+
+    it('does not flag a clean, non-traversing path embedded in code', () =>
+      expect(
+        fires('TG02-path-traversal', { code: 'open("./workspace/report.txt").read()' }),
       ).toBe(false));
   });
 
