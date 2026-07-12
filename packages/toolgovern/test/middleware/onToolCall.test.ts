@@ -337,4 +337,106 @@ describe('governTool', () => {
     await expect(gated.execute({ command: 'rm -rf /' })).rejects.toThrow();
     expect(seen).toEqual(['allow', 'deny']);
   });
+
+  describe('idempotency', () => {
+    // Counts real executions so tests can assert the underlying tool only actually ran once
+    // for a deduped retry, rather than just asserting on the returned value.
+    function makeCountingTool(): {
+      tool: ToolDefinition<{ amount: number; to: string }, { chargeId: number }>;
+      calls: () => number;
+    } {
+      let calls = 0;
+      const tool: ToolDefinition<{ amount: number; to: string }, { chargeId: number }> = {
+        name: 'charge-card',
+        execute: () => {
+          calls += 1;
+          return { chargeId: calls };
+        },
+      };
+      return { tool, calls: () => calls };
+    }
+
+    it('returns the cached result for an identical retry within the TTL window, executing the tool only once', async () => {
+      const { tool, calls } = makeCountingTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: [], credentials: [] },
+        idempotency: { enabled: true, ttlMs: 5_000 },
+      });
+
+      const first = await gated.execute({ amount: 100, to: 'acct-1' });
+      const second = await gated.execute({ amount: 100, to: 'acct-1' });
+
+      expect(first).toEqual({ chargeId: 1 });
+      expect(second).toEqual({ chargeId: 1 });
+      expect(calls()).toBe(1);
+    });
+
+    it('treats argument key order as irrelevant to the idempotency key (stable serialization)', async () => {
+      const { tool, calls } = makeCountingTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: [], credentials: [] },
+        idempotency: { enabled: true, ttlMs: 5_000 },
+      });
+
+      await gated.execute({ amount: 100, to: 'acct-1' });
+      // Same logical call, arguments supplied in a different key order -- must still hit cache.
+      const second = await gated.execute({ to: 'acct-1', amount: 100 });
+
+      expect(second).toEqual({ chargeId: 1 });
+      expect(calls()).toBe(1);
+    });
+
+    it('does not cache across different arguments -- each distinct call still executes', async () => {
+      const { tool, calls } = makeCountingTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: [], credentials: [] },
+        idempotency: { enabled: true, ttlMs: 5_000 },
+      });
+
+      await gated.execute({ amount: 100, to: 'acct-1' });
+      await gated.execute({ amount: 200, to: 'acct-1' });
+
+      expect(calls()).toBe(2);
+    });
+
+    it('executes again once the cached entry has expired past its TTL', async () => {
+      const { tool, calls } = makeCountingTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: [], credentials: [] },
+        idempotency: { enabled: true, ttlMs: 20 },
+      });
+
+      const first = await gated.execute({ amount: 100, to: 'acct-1' });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const second = await gated.execute({ amount: 100, to: 'acct-1' });
+
+      expect(first).toEqual({ chargeId: 1 });
+      expect(second).toEqual({ chargeId: 2 });
+      expect(calls()).toBe(2);
+    });
+
+    it('does not cache a denied call -- a retry is re-classified, not replayed', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        idempotency: { enabled: true, ttlMs: 5_000 },
+      });
+
+      await expect(gated.execute({ command: 'rm -rf /' })).rejects.toThrow(ToolGovernDenialError);
+      await expect(gated.execute({ command: 'rm -rf /' })).rejects.toThrow(ToolGovernDenialError);
+    });
+
+    it('with idempotency not enabled (default), every call executes independently -- no caching, no regression', async () => {
+      const { tool, calls } = makeCountingTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: [], credentials: [] },
+      });
+
+      const first = await gated.execute({ amount: 100, to: 'acct-1' });
+      const second = await gated.execute({ amount: 100, to: 'acct-1' });
+
+      expect(first).toEqual({ chargeId: 1 });
+      expect(second).toEqual({ chargeId: 2 });
+      expect(calls()).toBe(2);
+    });
+  });
 });

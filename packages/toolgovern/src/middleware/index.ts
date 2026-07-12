@@ -6,3 +6,4 @@ export {
   type GateDecisionInfo,
   type ApprovalHandler,
 } from './onToolCall.js';
+export { IdempotencyCache, type IdempotencyOptions } from './idempotency-cache.js';
