@@ -237,6 +237,62 @@ time), including the case where a coordinator's own scope has since shrunk. The 
 suite (`inheritance-enforcer.test.ts`, `cross-agent-inheritance.test.ts`) already covers this with
 both true- and false-positive cases; no gap was found that warranted a new rule or a fix here.
 
+### 9. Agent identity is caller-asserted, not cryptographically verified
+
+**The gap, and what is (and is not) fixed here.** `RuleContext.agentId` and `Policy.agentId`
+(`packages/toolgovern/src/types.ts`) are plain strings. Nothing in `governTool()`
+(`packages/toolgovern/src/middleware/onToolCall.ts`) or the scoping registry
+(`packages/toolgovern/src/scoping/`) cryptographically verifies that a caller supplying a given
+`agentId` actually is that agent. Any caller that can invoke `governTool()` can claim any
+`agentId` string, get evaluated against that agent's granted scope, and have decisions recorded
+under that identity in the trace. **This is not fixed in this pass, and is not claimed to be
+fixed.** Full identity verification -- signed caller tokens, mTLS client certs, a trusted broker
+that mints and attests `agentId`s -- is a real feature with real design tradeoffs (key
+management, revocation, how a "coordinator" and its "sub-agents" would each get and rotate
+credentials) that belongs in its own pass, not bolted onto this one.
+
+**What this pass does instead: a scoped, honest partial improvement.**
+
+- **Format validation.** `isValidAgentId()` (`packages/toolgovern/src/scoping/scope-declaration.ts`)
+  rejects `agentId` values that are empty, longer than 256 characters, or contain ASCII control
+  characters / the Unicode line-and-paragraph-separator characters (U+0000-U+001F, U+007F,
+  U+2028, U+2029). `governTool()` calls it on any explicitly-supplied `options.agentId` and
+  throws `InvalidAgentIdError` synchronously (at wrap time, before any tool call is evaluated or
+  traced) if it fails. This catches a concrete, narrow class of malformed/malicious input --
+  empty-string identity, unbounded-length payloads, embedded null bytes or newlines that could be
+  used for log injection or to forge what looks like an extra trace line -- that should never be
+  treated as an identity at all, independent of whether identity is ever verified. It does **not**
+  verify that a well-formed string is true; a well-formed lie passes exactly as easily as it did
+  before.
+- **Identity-source provenance.** `governTool()` now records whether the `agentId` used for a
+  call was `'explicit'` (the caller passed `options.agentId`) or `'fallback'` (no `agentId` was
+  supplied, so toolgovern used `'default-agent'`), as a new optional `agentIdSource` /
+  `agent_id_source` field on `TraceEntryInput` / `TraceEntry`
+  (`packages/toolgovern/src/types.ts`) and the corresponding trace line
+  (`docs/trace-format.md`). This gives an auditor reading the trace after the fact one more
+  signal: a run of decisions all recorded under `'fallback'` means no caller ever asserted a
+  distinct identity for that agent, which is useful context when investigating an incident, even
+  though `'explicit'` still does not mean the asserted identity was verified.
+
+**What this explicitly does NOT do**, stated plainly so it is not mistaken for more than it is:
+
+- It does not prove a caller is who it claims to be.
+- It does not stop a malicious caller from asserting another agent's exact `agentId` string
+  (impersonation), as long as that string happens to be well-formed.
+- It does not add any authentication, signing, or token-issuance mechanism.
+- `agent_id_source: "explicit"` is not an attestation -- it only means _some_ caller supplied
+  _some_ well-formed string, not that the string is accurate.
+
+**Proof.** `packages/toolgovern/test/scoping/scope-declaration.test.ts` (`isValidAgentId`) covers
+the accepted/rejected format cases (empty string, over-length string, embedded null byte,
+embedded newline, control characters, non-string input, and realistic well-formed identities like
+UUIDs and namespaced strings). `packages/toolgovern/test/middleware/onToolCall.test.ts`
+(`agent identity format validation` and `agent identity source` describe blocks) cover
+`governTool()` throwing `InvalidAgentIdError` for a malformed explicit `agentId`, and the trace
+correctly recording `agent_id_source: 'explicit'` vs. `'fallback'` for the corresponding call
+paths, alongside confirmation that existing valid-identity flows (a normal explicit `agentId`, and
+the no-`agentId`-supplied default path) are unaffected.
+
 ## Summary
 
 | #   | Area                                                                           | Status                                                                                                               |
