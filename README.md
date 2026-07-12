@@ -105,6 +105,12 @@ A gate decision of `allow` means the call was checked against this rule set and 
 is not a claim that the call is safe. The rule set is finite, and `docs/security-model.md`
 documents specifically what kinds of obfuscation it does and doesn't catch.
 
+By default, a call that matches no rule at all is allowed, not denied -- `governTool()`'s
+`defaultDecision` option defaults to `'allow'`, favoring usability over a hard fail-closed
+posture out of the box. If you want unrecognized calls to require approval or be denied instead,
+set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
+"nothing could have gone wrong" -- it means "checked against 31 rules, none fired."
+
 ## How it differs from a hosted runtime-control product or a framework's own native hook
 
 Runtime governance for agent tool calls is an active space. There are funded, cross-framework
