@@ -81,16 +81,14 @@ describe('TG03 undeclared network egress', () => {
       it('flags an IPv6 unique-local literal (fc00::/7)', () =>
         expect(fires('TG03-raw-ip-literal', { host: 'fc00::1' }, ['example.com'])).toBe(true));
       it('does not flag a domain name that merely contains colons in an unrelated field', () =>
-        expect(fires('TG03-raw-ip-literal', { host: 'example.com' }, ['example.com'])).toBe(
-          false,
-        ));
+        expect(fires('TG03-raw-ip-literal', { host: 'example.com' }, ['example.com'])).toBe(false));
     });
 
     describe('loopback/private/cloud-metadata targets are denied, not just flagged for approval', () => {
       it('denies the AWS/GCP/Azure cloud-metadata IPv4 address', () =>
-        expect(decisionOf('TG03-raw-ip-literal', { host: '169.254.169.254' }, ['example.com'])).toBe(
-          'deny',
-        ));
+        expect(
+          decisionOf('TG03-raw-ip-literal', { host: '169.254.169.254' }, ['example.com']),
+        ).toBe('deny'));
       it('denies an IPv4 loopback target', () =>
         expect(decisionOf('TG03-raw-ip-literal', { host: '127.0.0.1' }, ['example.com'])).toBe(
           'deny',
@@ -162,11 +160,9 @@ describe('TG03 undeclared network egress', () => {
   describe('nested argument host extraction (SSRF via nested MCP tool payloads)', () => {
     it('finds a host buried one level deep in a nested object', () =>
       expect(
-        fires(
-          'TG03-host-not-in-scope',
-          { params: { url: 'https://attacker.io/x' } },
-          ['example.com'],
-        ),
+        fires('TG03-host-not-in-scope', { params: { url: 'https://attacker.io/x' } }, [
+          'example.com',
+        ]),
       ).toBe(true));
     it('finds a host buried several levels deep in nested objects', () =>
       expect(
@@ -186,11 +182,9 @@ describe('TG03 undeclared network egress', () => {
       ).toBe(true));
     it('does not flag when the only nested host is allowlisted', () =>
       expect(
-        fires(
-          'TG03-host-not-in-scope',
-          { params: { url: 'https://api.example.com/x' } },
-          ['example.com'],
-        ),
+        fires('TG03-host-not-in-scope', { params: { url: 'https://api.example.com/x' } }, [
+          'example.com',
+        ]),
       ).toBe(false));
     it('still prefers a top-level explicit host over a nested one', () =>
       expect(

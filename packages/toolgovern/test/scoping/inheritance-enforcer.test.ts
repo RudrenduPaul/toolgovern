@@ -211,15 +211,15 @@ describe('hasZeroCapability', () => {
   });
 
   it('is false when network is a non-empty allowlist', () => {
-    expect(
-      hasZeroCapability({ network: ['example.com'], filesystem: [], credentials: [] }),
-    ).toBe(false);
+    expect(hasZeroCapability({ network: ['example.com'], filesystem: [], credentials: [] })).toBe(
+      false,
+    );
   });
 
   it('is false when at least one filesystem prefix is granted', () => {
-    expect(hasZeroCapability({ network: false, filesystem: ['./workspace'], credentials: [] })).toBe(
-      false,
-    );
+    expect(
+      hasZeroCapability({ network: false, filesystem: ['./workspace'], credentials: [] }),
+    ).toBe(false);
   });
 
   it('is false when at least one credential is granted', () => {
