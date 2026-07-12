@@ -7,7 +7,7 @@
  */
 
 import type { Rule, RuleContext, RuleMatch } from '../types.js';
-import { hostMatchesAllowed, isIpLiteral } from '../shared/paths.js';
+import { hostMatchesAllowed, isIpLiteral, isPrivateOrMetadataTarget } from '../shared/paths.js';
 import { extractCandidateHost, extractCommand, extractHost } from './util.js';
 
 const category = 'TG03' as const;
@@ -77,6 +77,17 @@ const rawIpLiteral: Rule = {
     if (!host || !isIpLiteral(host)) return null;
     if (ctx.scope.network === true) return null;
     if (Array.isArray(ctx.scope.network) && ctx.scope.network.includes(host)) return null;
+    if (isPrivateOrMetadataTarget(host)) {
+      // Loopback, RFC1918/unique-local, link-local, and cloud-metadata targets (e.g.
+      // `169.254.169.254`) are denied outright -- a human approver must never be able to
+      // rubber-stamp a call into an internal network or a cloud metadata endpoint.
+      return match(
+        this,
+        'deny',
+        `Connection to loopback/private/cloud-metadata IP literal "${host}" is never approvable.`,
+        host,
+      );
+    }
     return match(this, 'require-approval', `Connection to raw IP literal "${host}".`, host);
   },
 };
