@@ -26,11 +26,11 @@ jobs:
       - name: Format check
         run: npm run format
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Build
         run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Test with coverage
         run: npm run test:coverage
