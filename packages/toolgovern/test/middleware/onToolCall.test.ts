@@ -337,4 +337,100 @@ describe('governTool', () => {
     await expect(gated.execute({ command: 'rm -rf /' })).rejects.toThrow();
     expect(seen).toEqual(['allow', 'deny']);
   });
+
+  describe('onToolResult', () => {
+    function makeThrowingTool(message: string): ToolDefinition<{ command: string }, unknown> {
+      return {
+        name: 'bash',
+        execute: () => {
+          throw new Error(message);
+        },
+      };
+    }
+
+    it('catches an error thrown inside tool.execute() instead of it propagating unguarded', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeThrowingTool('/Users/secret/leaked-path failure'), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        agentId: 'coordinator',
+        sessionId: 's1',
+        trace,
+      });
+
+      // With no onToolResult, the caught error still rethrows (pass-through), but it must be a
+      // clean rejection -- not an unhandled exception -- and the gate's own trace entry (written
+      // before execute() ever ran) must be well-formed.
+      await expect(gated.execute({ command: 'ls ./workspace' })).rejects.toThrow(
+        '/Users/secret/leaked-path failure',
+      );
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(entry.decision).toBe('allow');
+      expect(entry.tool).toBe('bash');
+    });
+
+    it('lets onToolResult redact a thrown error before it reaches the caller', async () => {
+      const gated = governTool(makeThrowingTool('leaked secret: sk-12345'), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        onToolResult: (result) => {
+          if (result instanceof Error) {
+            return { error: 'redacted' };
+          }
+          return result;
+        },
+      });
+
+      const result = await gated.execute({ command: 'ls ./workspace' });
+      expect(result).toEqual({ error: 'redacted' });
+    });
+
+    it('lets onToolResult transform/redact a successful result before it reaches the caller', async () => {
+      const tool: ToolDefinition<{ command: string }, { ran: string; secret: string }> = {
+        name: 'bash',
+        execute: (args) => ({ ran: args.command, secret: 'sk-abc123' }),
+      };
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        onToolResult: (result) => {
+          const { secret: _secret, ...rest } = result as { ran: string; secret: string };
+          return { ...rest, secret: '[REDACTED]' };
+        },
+      });
+
+      const result = await gated.execute({ command: 'ls ./workspace' });
+      expect(result).toEqual({ ran: 'ls ./workspace', secret: '[REDACTED]' });
+    });
+
+    it('receives the RuleContext as its second argument', async () => {
+      let seenCtx: unknown;
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        agentId: 'coordinator',
+        sessionId: 's1',
+        onToolResult: (result, ctx) => {
+          seenCtx = ctx;
+          return result;
+        },
+      });
+      await gated.execute({ command: 'ls ./workspace' });
+      expect(seenCtx).toMatchObject({
+        agentId: 'coordinator',
+        sessionId: 's1',
+        tool: 'bash',
+      });
+    });
+
+    it('without onToolResult, a successful result passes through unchanged (existing behavior)', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+      });
+      const result = await gated.execute({ command: 'ls ./workspace' });
+      expect(result).toEqual({ ran: 'ls ./workspace' });
+    });
+  });
 });
