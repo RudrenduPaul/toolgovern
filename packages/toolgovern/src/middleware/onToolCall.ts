@@ -36,14 +36,27 @@ export interface GateDecisionInfo {
   readonly scope: ScopeDeclaration;
 }
 
-export type ApprovalHandler = (info: GateDecisionInfo) => Promise<boolean> | boolean;
+/** What an `ApprovalHandler` resolves to when it wants to record who made the call, not just
+ *  whether it was approved. A handler may still return a plain `boolean` -- `approvedBy` is
+ *  optional identity metadata, never required to resolve an approval. */
+export interface ApprovalOutcome {
+  readonly approved: boolean;
+  /** Identity of the human who approved or denied the call (e.g. an email, username, or ticket
+   *  ID). Recorded on the trace entry as `approved_by` when present. */
+  readonly approvedBy?: string;
+}
+
+export type ApprovalHandler = (
+  info: GateDecisionInfo,
+) => Promise<boolean | ApprovalOutcome> | boolean | ApprovalOutcome;
 
 export interface GovernToolOptions extends Policy {
   readonly scopeRegistry?: ScopeRegistry;
   readonly trace?: TraceWriter;
   /** Called only for `require-approval` decisions. Return/resolve `true` to allow the call
-   *  through, `false` to deny it. Omitted entirely means every `require-approval` decision is
-   *  denied (fail-closed) -- there is no such thing as an implicit approval. */
+   *  through, `false` to deny it -- or an `ApprovalOutcome` to also record who decided. Omitted
+   *  entirely means every `require-approval` decision is denied (fail-closed) -- there is no
+   *  such thing as an implicit approval. */
   readonly onApprovalRequired?: ApprovalHandler;
   /** How long to wait for `onApprovalRequired` before treating it as a denial. Defaults to 30s,
    *  matching the human-in-the-loop timeout shown in the product spec's sample gate output. */
@@ -87,21 +100,26 @@ function resolveEffectiveScope(
   return scopeRegistry.registerRootAgent(agentId, sessionId, scope).grantedScope;
 }
 
+function normalizeApprovalResult(result: boolean | ApprovalOutcome): ApprovalOutcome {
+  return typeof result === 'boolean' ? { approved: result } : result;
+}
+
 async function resolveApproval(
   handler: ApprovalHandler | undefined,
   info: GateDecisionInfo,
   timeoutMs: number,
-): Promise<boolean> {
-  if (!handler) return false;
+): Promise<ApprovalOutcome> {
+  if (!handler) return { approved: false };
   // A handler that throws (sync or async) must fail closed exactly like "no handler" or "timed
   // out" -- it must NOT propagate out of governTool(), because that would skip the trace-append
   // call below and surface a raw, unrelated error instead of ToolGovernDenialError. An
   // unanswerable approval request is a denial, not an application crash.
   const handlerResult = Promise.resolve()
     .then(() => handler(info))
-    .catch(() => false);
-  const timeout = new Promise<boolean>((resolve) => {
-    setTimeout(() => resolve(false), timeoutMs);
+    .then(normalizeApprovalResult)
+    .catch((): ApprovalOutcome => ({ approved: false }));
+  const timeout = new Promise<ApprovalOutcome>((resolve) => {
+    setTimeout(() => resolve({ approved: false }), timeoutMs);
   });
   return Promise.race([handlerResult, timeout]);
 }
@@ -160,9 +178,11 @@ export function governTool<Args extends Record<string, unknown>, Result>(
       };
 
       let finalDecision: Decision = decision;
+      let approvedBy: string | undefined;
       if (decision === 'require-approval') {
-        const approved = await resolveApproval(options.onApprovalRequired, info, approvalTimeoutMs);
-        finalDecision = approved ? 'allow' : 'deny';
+        const outcome = await resolveApproval(options.onApprovalRequired, info, approvalTimeoutMs);
+        finalDecision = outcome.approved ? 'allow' : 'deny';
+        approvedBy = outcome.approvedBy;
       }
 
       if (options.trace) {
@@ -177,9 +197,10 @@ export function governTool<Args extends Record<string, unknown>, Result>(
           agentId,
           tool: tool.name,
           args,
-          decision,
+          decision: finalDecision,
           ruleFired: ruleFiredIds,
           declaredScope: effectiveScope,
+          approvedBy,
         });
       }
 
