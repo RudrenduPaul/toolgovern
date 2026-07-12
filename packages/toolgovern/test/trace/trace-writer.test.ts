@@ -148,6 +148,55 @@ describe('TraceWriter', () => {
     expect(entryA.arguments_hash).not.toBe(entryB.arguments_hash);
   });
 
+  // `agentIdSource` is optional provenance metadata, populated by `governTool()` -- it is NOT
+  // identity verification (see docs/security-model.md). These tests exercise `TraceWriter`
+  // directly, independent of `governTool()`, to confirm the field round-trips when supplied and
+  // is simply omitted (not fabricated) when a direct caller does not supply it -- the same
+  // behavior every pre-existing test above (which never passes `agentIdSource`) already relies on.
+  it('omits agent_id_source when the caller does not supply it (no regression)', async () => {
+    const filePath = await makeTempTraceFile();
+    const writer = new TraceWriter(filePath);
+
+    const entry = await writer.append({
+      sessionId: 's1',
+      agentId: 'agent',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: { network: false, filesystem: [], credentials: [] },
+    });
+
+    expect(entry.agent_id_source).toBeUndefined();
+    const raw = await readFile(filePath, 'utf8');
+    const written = JSON.parse(raw.trim());
+    expect('agent_id_source' in written).toBe(false);
+  });
+
+  it('records agentIdSource when the caller supplies it, and includes it in the signed content', async () => {
+    const filePath = await makeTempTraceFile();
+    const writer = new TraceWriter(filePath);
+
+    const entry = await writer.append({
+      sessionId: 's1',
+      agentId: 'agent',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: { network: false, filesystem: [], credentials: [] },
+      agentIdSource: 'explicit',
+    });
+
+    expect(entry.agent_id_source).toBe('explicit');
+    const expectedHash = computeEntryContentHash(entry);
+    expect(entry.signature).toBe(`sha256:${expectedHash}`);
+
+    const raw = await readFile(filePath, 'utf8');
+    const written = JSON.parse(raw.trim());
+    expect(written.agent_id_source).toBe('explicit');
+  });
+
   it('creates the parent directory if it does not already exist', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'toolgovern-trace-'));
     tempDirs.push(dir);
