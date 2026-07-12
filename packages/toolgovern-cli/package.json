@@ -1,0 +1,35 @@
+{
+  "name": "toolgovern-cli",
+  "version": "0.1.0",
+  "description": "CLI for toolgovern -- validate policy files and audit local gate traces.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "types": "./dist/cli.d.ts",
+  "bin": {
+    "toolgovern-cli": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RudrenduPaul/toolgovern.git",
+    "directory": "packages/toolgovern-cli"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --strict",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "toolgovern": "0.1.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
