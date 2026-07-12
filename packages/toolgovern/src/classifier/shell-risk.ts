@@ -179,12 +179,27 @@ const diskWipe: Rule = {
   },
 };
 
-// A bare `/`, `~`, `*`, or the current directory (`.`, `./`, `./*`) -- the same "no real scope"
-// shape TG01-rm-rf's `highBlastRadius` check treats as high-risk. An empty string (no path
-// argument captured at all, which for `ls`/`find`/`grep` means "operate on the current
-// directory") counts the same way: there is nothing bounding how much output comes back.
+// A bare `~`, `*`, or the current directory (`.`, `./`, `./*`) -- the same "no real scope" shape
+// TG01-rm-rf's `highBlastRadius` check treats as high-risk. An empty string (no path argument
+// captured at all, which for `ls`/`find`/`grep` means "operate on the current directory") counts
+// the same way: there is nothing bounding how much output comes back.
+//
+// Absolute paths are handled separately below by depth rather than by a bare `starts with /`
+// check: unlike `rm -rf`, where any leading `/` is a reasonable danger proxy, a deep, specific
+// absolute path (e.g. `/Users/foo/project/small-scoped-dir`) is exactly the pattern well-behaved
+// coding agents are expected to use and must not be flagged just because it's absolute.
 function isUnscopedPath(target: string): boolean {
-  return target === '' || /^(\/|~|\*|\.$|\.\/\*?$)/.test(target);
+  if (target === '') return true;
+  if (/^(~|\*|\.$|\.\/\*?$)/.test(target)) return true;
+  if (target.startsWith('/')) {
+    // Root or shallow (<=2 segments after stripping the leading `/`, e.g. `/`, `/etc`, `/Users`,
+    // `/Users/foo`) is still broad enough to enumerate a huge fraction of the filesystem. 3+
+    // segments (e.g. `/Users/foo/project`, `/Users/foo/project/small-scoped-dir`) is specific
+    // enough to be a genuinely scoped target and is not flagged.
+    const segments = target.split('/').filter(Boolean);
+    return segments.length <= 2;
+  }
+  return false;
 }
 
 // Flag tokens are bounded and `\s+`-separated for the same ReDoS-avoidance reason as
