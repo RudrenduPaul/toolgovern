@@ -13,6 +13,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   against an attacker who does not hold the key, not just against a naive hand-edit
 - `TG01-decoded-payload-execution` rule -- catches base64/hex/openssl-decode-then-execute shell
   patterns that have no literal `curl`/`wget` token for `TG01-pipe-to-shell` to match
+- `TG01-context-flood` rule -- flags read-only, high-output-volume commands (`ls -R` with no
+  scoped path, `find` with no `-maxdepth` over an unscoped root, unscoped `grep -r`/`-R`, `cat`
+  over a recursive globstar) that can flood an agent's context window even though nothing is
+  destroyed or exfiltrated; decided as `require-approval`, not `deny`, since this is a cost/UX
+  problem, not a security breach
 - `docs/security-model.md` -- full threat-modeling writeup: what was found, what was fixed, what
   is a documented v0.1 limitation
 - `benchmarks/README.md` -- real, measured detection-rate/false-positive-rate/latency numbers
