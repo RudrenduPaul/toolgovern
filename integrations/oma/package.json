@@ -1,0 +1,21 @@
+{
+  "name": "toolgovern-integration-oma",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic, documented adapter shape for wiring toolgovern into an open multi-agent framework's tool-executor call site.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --strict",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "toolgovern": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
