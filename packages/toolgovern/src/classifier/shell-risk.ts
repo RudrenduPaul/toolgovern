@@ -17,6 +17,15 @@ function commandText(ctx: RuleContext): string {
   return normalizeForMatch(extractCommand(ctx.args) ?? stringifyArgs(ctx.args)).toLowerCase();
 }
 
+/** Case-preserving sibling of `commandText`: still runs the same obfuscation-normalization pass
+ *  (Unicode, `$IFS`, empty-quote splitting) but skips the final lowercase. `TG01-context-flood`
+ *  needs this for `ls`, where `-R` (recursive) and `-r` (reverse-sort, harmless) only differ by
+ *  case -- every other check in this file matches command names case-insensitively via a regex
+ *  `i` flag instead, since none of them have a case-sensitive flag ambiguity to preserve. */
+function commandTextCased(ctx: RuleContext): string {
+  return normalizeForMatch(extractCommand(ctx.args) ?? stringifyArgs(ctx.args));
+}
+
 function match(
   rule: Pick<Rule, 'id' | 'category'>,
   decision: RuleMatch['decision'],
@@ -170,6 +179,119 @@ const diskWipe: Rule = {
   },
 };
 
+// A bare `~`, `*`, or the current directory (`.`, `./`, `./*`) -- the same "no real scope" shape
+// TG01-rm-rf's `highBlastRadius` check treats as high-risk. An empty string (no path argument
+// captured at all, which for `ls`/`find`/`grep` means "operate on the current directory") counts
+// the same way: there is nothing bounding how much output comes back.
+//
+// Absolute paths are handled separately below by depth rather than by a bare `starts with /`
+// check: unlike `rm -rf`, where any leading `/` is a reasonable danger proxy, a deep, specific
+// absolute path (e.g. `/Users/foo/project/small-scoped-dir`) is exactly the pattern well-behaved
+// coding agents are expected to use and must not be flagged just because it's absolute.
+function isUnscopedPath(target: string): boolean {
+  if (target === '') return true;
+  if (/^(~|\*|\.$|\.\/\*?$)/.test(target)) return true;
+  if (target.startsWith('/')) {
+    // Root or shallow (<=2 segments after stripping the leading `/`, e.g. `/`, `/etc`, `/Users`,
+    // `/Users/foo`) is still broad enough to enumerate a huge fraction of the filesystem. 3+
+    // segments (e.g. `/Users/foo/project`, `/Users/foo/project/small-scoped-dir`) is specific
+    // enough to be a genuinely scoped target and is not flagged.
+    const segments = target.split('/').filter(Boolean);
+    return segments.length <= 2;
+  }
+  return false;
+}
+
+// Flag tokens are bounded and `\s+`-separated for the same ReDoS-avoidance reason as
+// `RM_PATTERN` above (see that comment). Group 1 is the flag cluster, group 2 (optional) is the
+// path argument immediately following it.
+const LS_PATTERN = /\bls\s+((?:-[a-z-]{1,16}\s+)*-[a-z-]{1,16})(?:\s+(\S+))?/i;
+
+// `find`'s first positional argument is conventionally its search root. This is a
+// regex-level approximation, not real argv parsing -- a leading option before the path
+// (`find -L / ...`) will not be captured as the target and this rule will simply miss it,
+// consistent with this file's existing "false negative over false positive" bias.
+const FIND_PATTERN = /\bfind\s+(\S+)/i;
+
+const FIND_MAXDEPTH_PATTERN = /-maxdepth\s+\d+/i;
+
+// Group 1 is the flag cluster -- `-[a-z-]{1,20}` already matches `--recursive` (the class
+// includes the hyphen, so the second leading dash is consumed by it too), so no separate
+// long-flag alternative is needed. The first non-capturing group consumes the search pattern
+// (quoted or bare); group 2 (optional) is the path argument that follows it.
+const GREP_RECURSIVE_PATTERN =
+  /\bgrep\s+((?:-[a-z-]{1,20}\s+)*-[a-z-]{1,20})\s+(?:"[^"]*"|'[^']*'|\S+)(?:\s+(\S+))?/i;
+
+// A `**` globstar segment anywhere in a `cat` target -- a single-level glob (`cat *.log`) is
+// common and usually bounded by directory size; a recursive globstar has no such bound.
+const CAT_GLOBSTAR_PATTERN = /\bcat\s+\S*\*\*\S*/i;
+
+const contextFlood: Rule = {
+  id: 'TG01-context-flood',
+  category,
+  description:
+    'Read-only, high-output-volume command (unscoped recursive listing/search/concatenation) that risks flooding the agent context window rather than a security breach.',
+  evaluate(ctx) {
+    const cased = commandTextCased(ctx);
+
+    const lsFound = cased.match(LS_PATTERN);
+    if (lsFound) {
+      const flags = lsFound[1] ?? '';
+      const target = lsFound[2] ?? '';
+      // `-R` (capital) is recursive; `-r` (lowercase) is reverse-sort order and harmless here --
+      // this is exactly why this check runs against the case-preserving `cased` text.
+      if (flags.includes('R') && isUnscopedPath(target)) {
+        return match(
+          this,
+          'require-approval',
+          'Recursive `ls -R` with no scoped path -- can dump an unbounded directory tree into context.',
+          lsFound[0],
+        );
+      }
+    }
+
+    const findFound = cased.match(FIND_PATTERN);
+    if (findFound && !FIND_MAXDEPTH_PATTERN.test(cased) && isUnscopedPath(findFound[1] ?? '')) {
+      return match(
+        this,
+        'require-approval',
+        '`find` over an unscoped root with no -maxdepth -- can enumerate an unbounded number of results.',
+        findFound[0],
+      );
+    }
+
+    const grepFound = cased.match(GREP_RECURSIVE_PATTERN);
+    if (grepFound) {
+      const flags = grepFound[1] ?? '';
+      const target = grepFound[2] ?? '';
+      // Unlike `ls`, grep's `-r` and `-R` are both recursive (no reverse-sort ambiguity), so a
+      // plain case-insensitive check for the letter `r` in the flag cluster is enough -- none of
+      // grep's other common short flags (`-i -n -l -c -o -v -w -x -A -B -C -E -F -e -f -m -s -q
+      // -a -H -h`) contain the letter `r`.
+      if (/r/i.test(flags) && isUnscopedPath(target)) {
+        return match(
+          this,
+          'require-approval',
+          'Recursive `grep -r`/`-R` with no scoped path -- can flood context with matches from an entire filesystem tree.',
+          grepFound[0],
+        );
+      }
+    }
+
+    const catFound = cased.match(CAT_GLOBSTAR_PATTERN);
+    if (catFound) {
+      return match(
+        this,
+        'require-approval',
+        '`cat` over a recursive globstar -- can concatenate an unbounded number of files into context.',
+        catFound[0],
+      );
+    }
+
+    return null;
+  },
+};
+
 export const shellRiskRules: readonly Rule[] = [
   rmRf,
   pipeToShell,
@@ -179,4 +301,5 @@ export const shellRiskRules: readonly Rule[] = [
   reverseShell,
   diskWipe,
   decodedPayloadExecution,
+  contextFlood,
 ];
