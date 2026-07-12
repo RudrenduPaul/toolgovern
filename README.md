@@ -143,8 +143,9 @@ below is a summary of that file, not a separate claim.
 | **Overall**                            | **31**      | **100.0% (63/63)** | **0.0% (0/49)**     |
 
 Per-call classifier latency, in-process with no network round-trip, measured across 5,000 calls
-per run over 3 runs: mean 23-26 microseconds, p50 20-23 microseconds, p95 37-46 microseconds, p99
-78-93 microseconds.
+per run over 3 runs: mean 6.7-7.0 microseconds, p50 6.5-6.6 microseconds, p95 8.9-9.5 microseconds,
+p99 11.5-16.0 microseconds. See `benchmarks/README.md` for an earlier, higher run captured under
+heavier machine load and why that's expected for a wall-clock microbenchmark.
 
 Read the detection-rate number honestly: it's 100% on a 112-case corpus the maintainers wrote to
 match the rules the maintainers wrote, including obfuscated variants (base64-decode-then-execute,
