@@ -39,6 +39,7 @@ function entryContent(entry: Omit<TraceEntry, 'signature'>): string {
     rule_fired: entry.rule_fired,
     declared_scope: entry.declared_scope,
     prior_trace_id: entry.prior_trace_id,
+    approved_by: entry.approved_by,
   });
 }
 
@@ -109,6 +110,7 @@ export class TraceWriter {
       rule_fired: ruleFired,
       declared_scope: input.declaredScope,
       prior_trace_id: priorTraceId,
+      approved_by: input.approvedBy,
     };
     // trace_id is derived from the entry's own (unkeyed) content hash -- it is an identifier, not
     // a security boundary, so it stays reproducible/public even when the signature is keyed.
