@@ -256,3 +256,57 @@ above, the classifier now resists the specific obfuscation techniques that were 
 confirmed. It is not a guarantee against every possible bypass, and it is not a claim that TG06/TG07
 (session-level anomaly detection, not yet built) would have caught a multi-step attack that only
 looks suspicious in aggregate.
+
+## What this does not cover
+
+The threat model above is scoped to what `governTool()` actually does: classify a tool call's
+arguments against a rule set and gate the call before it executes. The items below are genuinely
+out of scope for that model -- not overlooked, but categorically outside what a per-call,
+in-process, stateless argument classifier can address. Listed here on the same policy as the rest
+of this document: disclosed, not silently omitted.
+
+- **Deserialization/pickle safety.** Unsafe object deserialization (`pickle.loads` on untrusted
+  bytes, insecure deserialization gadgets, and similar) happens inside a tool's own implementation
+  once it starts executing, not at the call boundary toolgovern gates. toolgovern sees the
+  arguments passed into a tool call; it has no visibility into what that tool does with a byte
+  stream internally. (Not to be confused with finding #5 above, which reviews toolgovern's _own_
+  YAML policy-file parser -- a narrower, different claim.)
+
+- **Signature/attestation verification of agent identity.** toolgovern's `agentId`
+  (`packages/toolgovern/src/types.ts`) is a plain, caller-supplied string that nothing in the
+  codebase authenticates -- `governTool()` (`packages/toolgovern/src/middleware/onToolCall.ts`)
+  trusts whatever the host process passes in, defaulting to the literal string `'default-agent'`
+  if none is given at all. This is a known, tracked gap, not a design decision: proving _who_ an
+  agent is (mTLS, signed JWTs, a PKI-backed attestation service) is agent-identity infrastructure,
+  a different problem from deciding whether a call _should_ happen once an identity is asserted.
+  Treat `agentId` as a label the host application vouches for, not a boundary toolgovern itself
+  enforces.
+
+- **Process-level sandboxing / resource isolation.** rlimits, filesystem namespace isolation, and
+  container/VM boundaries are questions about the environment a tool executes in. toolgovern gates
+  the _decision_ to call a tool; it does not launch, control, or constrain the process that
+  actually runs it, so a call a policy allows can still misbehave at the OS level in ways only a
+  real sandbox would catch.
+
+- **CLI/config-scaffolding credential generation.** A project generator hardcoding a default
+  database password, or a scaffolding CLI writing a weak secret into a `.env` at setup time, is a
+  software-supply-chain concern that happens before, or entirely outside, any tool call toolgovern
+  ever sees. There is no `governTool()` invocation in that path to gate.
+
+- **Idempotency / at-most-once execution guarantees across retries.** The classifier is stateless
+  per call today: it evaluates the arguments in front of it and does not track whether a given
+  call is a fresh request or a retry of one that already ran. Retry-safe, exactly-once semantics
+  are the calling framework's responsibility, not something inferable from a single call's
+  arguments alone.
+
+- **MCP-server trust boundary (origin allowlisting, server signature/PKI verification).** Deciding
+  whether to trust and connect to a given MCP server at all is a connection-time, server-identity
+  concern that is resolved before toolgovern's classifier ever runs. toolgovern evaluates the
+  arguments of an individual call; it has no model of, and does not evaluate, which server issued
+  the tool definition being called.
+
+- **Real process/kernel-level resource isolation (Docker/Firecracker/WASM-style sandboxing).**
+  Related to the process-isolation point above but worth stating on its own: `governTool()` is an
+  in-process, pre-execution decision gate -- a function call that returns allow/deny/require-approval
+  -- not an isolation executor. It enforces no memory or CPU limits of its own; that is the job of
+  whatever executor actually runs the underlying tool.
