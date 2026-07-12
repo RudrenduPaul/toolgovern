@@ -12,6 +12,7 @@
 
 import type { Rule, RuleContext, RuleMatch } from '../types.js';
 import { credentialMatchesGranted, hostMatchesAllowed, isPathWithin } from '../shared/paths.js';
+import { hasZeroCapability } from '../scoping/inheritance-enforcer.js';
 import { extractCandidateHost, extractCredentialIdentifier, extractPath } from './util.js';
 
 const category = 'TG05' as const;
@@ -44,6 +45,29 @@ const unregisteredSubAgent: Rule = {
       this,
       'deny',
       `Agent "${ctx.agentId}" declares coordinator "${ctx.coordinatorId}" but has no registered scope grant.`,
+      ctx.agentId,
+    );
+  },
+};
+
+const zeroCapabilitySubAgent: Rule = {
+  id: 'TG05-zero-capability-sub-agent',
+  category,
+  description:
+    'A sub-agent whose coordinator granted it zero capability at all (no filesystem, network, ' +
+    'or credential access) attempts a tool call. Denied outright, rather than falling through ' +
+    "unclassified when the call's arguments happen not to match any other rule's extraction " +
+    '(e.g. a call with no recognizable path/host/credential argument).',
+  evaluate(ctx) {
+    if (!ctx.coordinatorId) return null;
+    if (!ctx.scopeRegistry) return null;
+    const record = ctx.scopeRegistry.getRecord(ctx.agentId);
+    if (!record?.coordinatorId) return null;
+    if (!hasZeroCapability(record.grantedScope)) return null;
+    return match(
+      this,
+      'deny',
+      `Agent "${ctx.agentId}" was granted zero tool capability by its coordinator "${record.coordinatorId}"; all tool calls are denied.`,
       ctx.agentId,
     );
   },
@@ -186,6 +210,7 @@ const coordinatorScopeShrunk: Rule = {
 
 export const crossAgentInheritanceRules: readonly Rule[] = [
   unregisteredSubAgent,
+  zeroCapabilitySubAgent,
   networkExceedsGrant,
   filesystemExceedsGrant,
   credentialExceedsGrant,

@@ -14,6 +14,7 @@ const category = 'TG02' as const;
 const WRITE_OPS = new Set(['write', 'create', 'append', 'put', 'save']);
 const DELETE_OPS = new Set(['delete', 'remove', 'unlink', 'rm', 'rmdir']);
 const CHMOD_OPS = new Set(['chmod', 'chown', 'setpermissions', 'set_permissions']);
+const READ_OPS = new Set(['read', 'get', 'load', 'fetch', 'cat', 'open']);
 const SENSITIVE_SYSTEM_PREFIXES = ['/etc', '/usr', '/bin', '/sbin', '/system', '/private/etc'];
 
 function isWithinScope(path: string, filesystem: readonly string[]): boolean {
@@ -89,6 +90,31 @@ const chmodOutsideScope: Rule = {
   },
 };
 
+const readOutsideScope: Rule = {
+  id: 'TG02-read-outside-scope',
+  category,
+  description:
+    "A read targets a path outside the caller's declared filesystem scope. Only fires when a " +
+    'filesystem boundary was actually declared -- reads are not flagged for a caller with no ' +
+    'declared filesystem scope at all (that absence is enforced elsewhere, e.g. TG05 zero-' +
+    'capability denial), since nothing here would tell a read apart from any other unscoped call.',
+  evaluate(ctx) {
+    if (ctx.scope.filesystem.length === 0) return null;
+    const path = extractPath(ctx.args);
+    if (!path) return null;
+    const op =
+      extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('read') ? 'read' : '');
+    if (!READ_OPS.has(op)) return null;
+    if (isWithinScope(path, ctx.scope.filesystem)) return null;
+    return match(
+      this,
+      'require-approval',
+      `Read target "${path}" is outside the declared filesystem scope.`,
+      path,
+    );
+  },
+};
+
 const pathTraversal: Rule = {
   id: 'TG02-path-traversal',
   category,
@@ -145,6 +171,7 @@ export const filesystemScopeRules: readonly Rule[] = [
   writeOutsideScope,
   deleteOutsideScope,
   chmodOutsideScope,
+  readOutsideScope,
   pathTraversal,
   symlinkEscape,
   sensitiveSystemPath,

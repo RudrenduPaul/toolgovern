@@ -40,14 +40,81 @@ export function extractCommand(args: Readonly<Record<string, unknown>>): string 
   return firstString(args, COMMAND_KEYS);
 }
 
-/** Extracts a filesystem-path-like string from common argument key names. */
-export function extractPath(args: Readonly<Record<string, unknown>>): string | undefined {
-  return firstString(args, PATH_KEYS);
+/** Extracts the raw `code` string argument a code-execution tool (Python/Node/shell interpreter
+ *  "run this code" style tool) was invoked with, if any. Kept separate from `extractCommand`
+ *  (which also looks at `code` among other keys) so path/operation inference below can scan the
+ *  code body specifically without depending on which other command-like key happened to win. */
+export function extractCodeText(args: Readonly<Record<string, unknown>>): string | undefined {
+  const value = args['code'];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/** Extracts a declared filesystem operation (read/write/delete/chmod/...) if the tool provides one. */
+/** The first string-literal argument to a common file-open/read/write/delete call inside a code
+ *  string (Python `open(...)`, Node `fs.readFile(...)`/`fs.writeFileSync(...)`, `os.remove(...)`,
+ *  `shutil.rmtree(...)`, ...) is treated as a candidate filesystem path. */
+const CODE_FILE_CALL_PATTERN =
+  /\b(?:open|readfile|readfilesync|writefile|writefilesync|unlink|unlinksync|rmsync|rmdirsync|chmod|chown|chmodsync|chownsync|os\.remove|os\.unlink|os\.rmdir|os\.chmod|os\.chown|fs\.chmod|fs\.chown|shutil\.rmtree|shutil\.copy\w*)\s*\(\s*["']([^"']+)["']/i;
+
+/** A bare `../`-traversal or absolute-path string literal anywhere in a code string, even outside
+ *  a recognized file-open call (e.g. a path assembled via a variable but still containing a
+ *  literal traversal fragment quoted on its own). Used only when no recognized call matched. */
+const CODE_BARE_PATH_PATTERN = /["'`]((?:\.\.\/)+[^"'`]*|\/(?:[\w.-]+\/)*[\w.-]+)["'`]/;
+
+/** Scans a code-execution tool's `code` string for a path-like literal. Closes the gap where a
+ *  path-traversal payload (or any other write/delete/chmod target) is embedded inside a `code`
+ *  argument rather than passed under a `path`/`target`/`dest`-style key -- e.g. Python code
+ *  containing `open("../../etc/passwd")` handed to a generic "run this code" tool. */
+export function extractPathFromCode(code: string): string | undefined {
+  const callMatch = code.match(CODE_FILE_CALL_PATTERN);
+  if (callMatch?.[1]) return callMatch[1];
+  const bareMatch = code.match(CODE_BARE_PATH_PATTERN);
+  if (bareMatch?.[1]) return bareMatch[1];
+  return undefined;
+}
+
+/** Recognized delete/chmod/write call shapes inside a code string, used to infer an operation
+ *  when the tool call has no explicit `operation`/`op`/`action`/`mode` argument -- only the code
+ *  itself reveals what the embedded path is actually used for. */
+const CODE_DELETE_PATTERN =
+  /\b(?:os\.remove|os\.unlink|os\.rmdir|shutil\.rmtree|fs\.unlink|fs\.unlinksync|fs\.rm|fs\.rmsync|fs\.rmdir|fs\.rmdirsync|unlinksync|rmsync|rmdirsync)\s*\(/i;
+const CODE_CHMOD_PATTERN =
+  /\b(?:os\.chmod|os\.chown|fs\.chmod|fs\.chmodsync|fs\.chown|fs\.chownsync|chmodsync|chownsync)\s*\(/i;
+const CODE_WRITE_CALL_PATTERN =
+  /\b(?:writefile|writefilesync|fs\.writefile|fs\.writefilesync|os\.write)\s*\(/i;
+/** Python's `open(path, mode)` -- any mode containing w/a/x (write/append/exclusive-create) is a
+ *  write; a bare `open(path)` or explicit `"r"` mode is a read, which this does not classify. */
+const CODE_OPEN_WRITE_MODE_PATTERN = /\bopen\s*\([^)]*?,\s*["'](\w*[wax]\w*)["']/i;
+
+/** Infers a write/delete/chmod operation from a code string's recognized call shapes. Returns
+ *  `undefined` (not "read") when nothing recognizable matched -- callers fall back to their own
+ *  read-vs-unknown handling. */
+export function extractOperationFromCode(code: string): string | undefined {
+  if (CODE_DELETE_PATTERN.test(code)) return 'delete';
+  if (CODE_CHMOD_PATTERN.test(code)) return 'chmod';
+  if (CODE_WRITE_CALL_PATTERN.test(code) || CODE_OPEN_WRITE_MODE_PATTERN.test(code)) {
+    return 'write';
+  }
+  return undefined;
+}
+
+/** Extracts a filesystem-path-like string from common argument key names, falling back to
+ *  scanning a `code` string argument (see `extractPathFromCode`) when no `path`/`target`/`dest`-
+ *  style key is present. */
+export function extractPath(args: Readonly<Record<string, unknown>>): string | undefined {
+  const direct = firstString(args, PATH_KEYS);
+  if (direct) return direct;
+  const code = extractCodeText(args);
+  return code ? extractPathFromCode(code) : undefined;
+}
+
+/** Extracts a declared filesystem operation (read/write/delete/chmod/...) if the tool provides
+ *  one, falling back to inferring one from a `code` string argument (see
+ *  `extractOperationFromCode`) when no `operation`/`op`/`action`/`mode` key is present. */
 export function extractOperation(args: Readonly<Record<string, unknown>>): string | undefined {
-  return firstString(args, OPERATION_KEYS)?.toLowerCase();
+  const direct = firstString(args, OPERATION_KEYS)?.toLowerCase();
+  if (direct) return direct;
+  const code = extractCodeText(args);
+  return code ? extractOperationFromCode(code) : undefined;
 }
 
 /** Extracts a network host/URL-like string from common argument key names. */
