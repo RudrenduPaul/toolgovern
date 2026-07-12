@@ -11,9 +11,17 @@
  * treated as a yes.
  */
 
-import type { Decision, Policy, RuleContext, RuleMatch, ScopeDeclaration } from '../types.js';
+import type {
+  AgentIdSource,
+  Decision,
+  Policy,
+  RuleContext,
+  RuleMatch,
+  ScopeDeclaration,
+} from '../types.js';
 import { classify } from '../classifier/index.js';
 import type { ScopeRegistry } from '../scoping/inheritance-enforcer.js';
+import { isValidAgentId } from '../scoping/scope-declaration.js';
 import type { TraceWriter } from '../trace/trace-writer.js';
 
 export interface ToolDefinition<
@@ -91,6 +99,25 @@ export class ToolGovernDenialError extends Error {
   }
 }
 
+/**
+ * Thrown by `governTool()` when an explicitly-supplied `options.agentId` fails the format check
+ * in `isValidAgentId()` (empty, excessively long, or containing control/injection-style
+ * characters). This is a format rejection, not an identity-verification failure -- toolgovern
+ * cannot tell a malformed `agentId` apart from a well-formed one that is still a lie; it can only
+ * refuse to treat obviously-malformed input as an identity at all. See
+ * `docs/security-model.md`, "Agent identity is caller-asserted, not cryptographically verified."
+ */
+export class InvalidAgentIdError extends Error {
+  constructor(public readonly rawAgentId: string) {
+    super(
+      `toolgovern rejected a malformed agentId: ${JSON.stringify(rawAgentId)}. It must be a ` +
+        'non-empty string, no longer than 256 characters, with no control characters. This is a ' +
+        'format check only -- it does not verify the caller actually is the agent it claims to be.',
+    );
+    this.name = 'InvalidAgentIdError';
+  }
+}
+
 function resolveEffectiveScope(
   options: GovernToolOptions,
   agentId: string,
@@ -146,6 +173,15 @@ export function governTool<Args extends Record<string, unknown>, Result>(
   tool: ToolDefinition<Args, Result>,
   options: GovernToolOptions,
 ): ToolDefinition<Args, Result> {
+  // `agentId` is a caller-asserted string, never cryptographically verified (see
+  // `docs/security-model.md`). What we CAN do here is reject a malformed one outright -- a claim
+  // that isn't even well-formed shouldn't be treated as an identity at all -- and record whether
+  // this call's `agentId` was explicitly supplied or fell back to the default, so an auditor
+  // reading the trace later can see which kind of (still-unverified) claim backed the decision.
+  if (options.agentId !== undefined && !isValidAgentId(options.agentId)) {
+    throw new InvalidAgentIdError(options.agentId);
+  }
+  const agentIdSource: AgentIdSource = options.agentId !== undefined ? 'explicit' : 'fallback';
   const agentId = options.agentId ?? 'default-agent';
   const sessionId = options.sessionId ?? 'default-session';
   const coordinatorId = options.coordinatorId;
@@ -214,6 +250,7 @@ export function governTool<Args extends Record<string, unknown>, Result>(
           ruleFired: ruleFiredIds,
           declaredScope: effectiveScope,
           approvedBy,
+          agentIdSource,
         });
       }
 

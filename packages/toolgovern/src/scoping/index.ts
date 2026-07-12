@@ -1,4 +1,9 @@
-export { EMPTY_SCOPE, isValidScopeDeclaration, normalizeScope } from './scope-declaration.js';
+export {
+  EMPTY_SCOPE,
+  isValidAgentId,
+  isValidScopeDeclaration,
+  normalizeScope,
+} from './scope-declaration.js';
 export {
   ScopeRegistry,
   computeInheritedScope,
