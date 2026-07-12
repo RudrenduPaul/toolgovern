@@ -12,6 +12,7 @@ import {
   containsPathTraversal as sharedContainsPathTraversal,
   isIpLiteral as sharedIsIpLiteral,
   isPathWithin as sharedIsPathWithin,
+  isPrivateOrMetadataTarget as sharedIsPrivateOrMetadataTarget,
   normalizeHost as sharedNormalizeHost,
   normalizePath as sharedNormalizePath,
 } from '../shared/paths.js';
@@ -137,15 +138,56 @@ export const normalizePath = sharedNormalizePath;
 /** True if the path contains a `..` segment that could escape a scoped prefix via traversal. */
 export const containsPathTraversal = sharedContainsPathTraversal;
 
-/** True if `host` is a raw IPv4 literal (not a domain name). */
+/** True if `host` is a raw IP literal, IPv4 or IPv6 (not a domain name). */
 export const isIpLiteral = sharedIsIpLiteral;
 
+/** True if `host` targets loopback, an RFC1918/unique-local private range, link-local space, or
+ *  a cloud-metadata endpoint -- see `shared/paths.ts#isPrivateOrMetadataTarget` for the full
+ *  range list. */
+export const isPrivateOrMetadataTarget = sharedIsPrivateOrMetadataTarget;
+
+/** Maximum object/array nesting depth `findNestedHost` will descend into. Bounds the search
+ *  against pathological or cyclic-looking (self-referential arrays are still finite in JSON, but
+ *  deeply/absurdly nested) argument payloads. */
+const MAX_HOST_SEARCH_DEPTH = 8;
+
+/** Depth-first search for the first `HOST_KEYS`-named string value anywhere inside a nested
+ *  argument bag, so a host/URL buried inside a nested payload (e.g. an MCP tool call's nested
+ *  `params.target.url`) is still found rather than only checked at the top level. */
+function findNestedHost(value: unknown, depth = 0): string | undefined {
+  if (value == null || depth > MAX_HOST_SEARCH_DEPTH) return undefined;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findNestedHost(item, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const direct = firstString(record, HOST_KEYS);
+    if (direct) return direct;
+    for (const nested of Object.values(record)) {
+      if (nested != null && typeof nested === 'object') {
+        const found = findNestedHost(nested, depth + 1);
+        if (found) return found;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
- * Pulls a candidate network host out of an explicit host/url argument, or otherwise scans a
- * shell-command-like string for the first `http(s)://` URL. Returns a normalized hostname.
+ * Pulls a candidate network host out of an explicit host/url argument -- checked at the top
+ * level first, then recursively through nested objects/arrays so a host buried inside a nested
+ * tool-call payload isn't missed -- or otherwise scans a shell-command-like string for the first
+ * `http(s)://` URL. Returns a normalized hostname.
  */
 export function extractCandidateHost(args: Readonly<Record<string, unknown>>): string | undefined {
-  const explicit = extractHost(args);
+  const explicit = extractHost(args) ?? findNestedHost(args);
   if (explicit) return sharedNormalizeHost(normalizeForMatch(explicit));
 
   const command = normalizeForMatch(extractCommand(args) ?? stringifyArgs(args));
