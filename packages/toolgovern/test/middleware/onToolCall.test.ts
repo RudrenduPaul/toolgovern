@@ -158,7 +158,7 @@ describe('governTool', () => {
       expect(entry.rule_fired).toContain('TG01-sudo');
     });
 
-    it('records the final decision (allow) in the trace after a human approves, not the classifier\'s original require-approval decision', async () => {
+    it("records the final decision (allow) in the trace after a human approves, not the classifier's original require-approval decision", async () => {
       const filePath = await makeTempTraceFile();
       const trace = new TraceWriter(filePath);
       const gated = governTool(makeShellTool(), {
@@ -181,7 +181,7 @@ describe('governTool', () => {
       expect(entry.rule_fired).toContain('TG01-sudo');
     });
 
-    it('records the final decision (deny) in the trace after a human denies, not the classifier\'s original require-approval decision', async () => {
+    it("records the final decision (deny) in the trace after a human denies, not the classifier's original require-approval decision", async () => {
       const filePath = await makeTempTraceFile();
       const trace = new TraceWriter(filePath);
       const gated = governTool(makeShellTool(), {

@@ -95,7 +95,8 @@ function parseIpv6Groups(host: string): number[] | null {
   }
 
   const hextetPattern = /^[0-9a-f]{1,4}$/i;
-  const splitHextets = (segment: string): string[] => (segment.length === 0 ? [] : segment.split(':'));
+  const splitHextets = (segment: string): string[] =>
+    segment.length === 0 ? [] : segment.split(':');
   const headParts = splitHextets(head);
   const tailParts = splitHextets(tail);
 
@@ -180,7 +181,16 @@ export function isPrivateOrMetadataTarget(host: string): boolean {
   ];
 
   // ::1 loopback
-  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0 && g7 === 1) {
+  if (
+    g0 === 0 &&
+    g1 === 0 &&
+    g2 === 0 &&
+    g3 === 0 &&
+    g4 === 0 &&
+    g5 === 0 &&
+    g6 === 0 &&
+    g7 === 1
+  ) {
     return true;
   }
   // fe80::/10 link-local
