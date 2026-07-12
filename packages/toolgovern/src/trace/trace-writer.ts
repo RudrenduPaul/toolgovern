@@ -38,6 +38,7 @@ function entryContent(entry: Omit<TraceEntry, 'signature'>): string {
     decision: entry.decision,
     rule_fired: entry.rule_fired,
     declared_scope: entry.declared_scope,
+    agent_id_source: entry.agent_id_source,
     prior_trace_id: entry.prior_trace_id,
   });
 }
@@ -108,6 +109,7 @@ export class TraceWriter {
       decision: input.decision as Decision,
       rule_fired: ruleFired,
       declared_scope: input.declaredScope,
+      agent_id_source: input.agentIdSource,
       prior_trace_id: priorTraceId,
     };
     // trace_id is derived from the entry's own (unkeyed) content hash -- it is an identifier, not

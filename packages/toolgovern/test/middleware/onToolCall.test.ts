@@ -2,7 +2,11 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { governTool, ToolGovernDenialError } from '../../src/middleware/onToolCall.js';
+import {
+  governTool,
+  InvalidAgentIdError,
+  ToolGovernDenialError,
+} from '../../src/middleware/onToolCall.js';
 import type { ToolDefinition } from '../../src/middleware/onToolCall.js';
 import { ScopeRegistry } from '../../src/scoping/inheritance-enforcer.js';
 import { TraceWriter } from '../../src/trace/trace-writer.js';
@@ -336,5 +340,148 @@ describe('governTool', () => {
     await gated.execute({ command: 'ls ./workspace' });
     await expect(gated.execute({ command: 'rm -rf /' })).rejects.toThrow();
     expect(seen).toEqual(['allow', 'deny']);
+  });
+
+  // These tests cover a PARTIAL fix: format validation and identity-source provenance tracking,
+  // not cryptographic identity verification. `agentId` remains a caller-asserted string; a
+  // well-formed lie still passes. See docs/security-model.md, "Agent identity is caller-asserted,
+  // not cryptographically verified."
+  describe('agent identity format validation', () => {
+    it('rejects an empty explicit agentId at wrap time', () => {
+      expect(() =>
+        governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          agentId: '',
+        }),
+      ).toThrow(InvalidAgentIdError);
+    });
+
+    it('rejects an explicit agentId containing a null byte', () => {
+      expect(() =>
+        governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          agentId: 'agent\u0000-evil',
+        }),
+      ).toThrow(InvalidAgentIdError);
+    });
+
+    it('rejects an explicit agentId containing an embedded newline', () => {
+      expect(() =>
+        governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          agentId: 'agent\nfake_trace_line',
+        }),
+      ).toThrow(InvalidAgentIdError);
+    });
+
+    it('rejects an explicit agentId past the length ceiling', () => {
+      expect(() =>
+        governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          agentId: 'a'.repeat(257),
+        }),
+      ).toThrow(InvalidAgentIdError);
+    });
+
+    it('never executes the wrapped tool when agentId is malformed', async () => {
+      let executed = false;
+      const tool: ToolDefinition<{ command: string }, unknown> = {
+        name: 'bash',
+        execute: (args) => {
+          executed = true;
+          return { ran: args.command };
+        },
+      };
+      expect(() =>
+        governTool(tool, {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          agentId: '',
+        }),
+      ).toThrow(InvalidAgentIdError);
+      expect(executed).toBe(false);
+    });
+
+    it('accepts a well-formed explicit agentId and behaves like any other call (no regression)', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        agentId: 'coordinator',
+      });
+      const result = await gated.execute({ command: 'ls ./workspace' });
+      expect(result).toEqual({ ran: 'ls ./workspace' });
+    });
+
+    it('the default fallback agentId is unaffected when no agentId is supplied (no regression)', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+      });
+      const result = await gated.execute({ command: 'ls ./workspace' });
+      expect(result).toEqual({ ran: 'ls ./workspace' });
+    });
+  });
+
+  describe('agent identity source (trace provenance, not verification)', () => {
+    it('records agent_id_source "explicit" when the caller supplies agentId', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        agentId: 'coordinator',
+        trace,
+      });
+      await gated.execute({ command: 'ls ./workspace' });
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(entry.agent_id).toBe('coordinator');
+      expect(entry.agent_id_source).toBe('explicit');
+    });
+
+    it('records agent_id_source "fallback" when no agentId is supplied', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        trace,
+      });
+      await gated.execute({ command: 'ls ./workspace' });
+
+      const raw = await readFile(filePath, 'utf8');
+      const [entry] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(entry.agent_id).toBe('default-agent');
+      expect(entry.agent_id_source).toBe('fallback');
+    });
+
+    it('distinguishes explicit from fallback across two different gated tools sharing one trace', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const explicitGated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        agentId: 'research-sub',
+        sessionId: 's1',
+        trace,
+      });
+      const fallbackGated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        sessionId: 's1',
+        trace,
+      });
+
+      await explicitGated.execute({ command: 'ls ./workspace' });
+      await fallbackGated.execute({ command: 'ls ./workspace' });
+
+      const raw = await readFile(filePath, 'utf8');
+      const [first, second] = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(first.agent_id_source).toBe('explicit');
+      expect(second.agent_id_source).toBe('fallback');
+    });
   });
 });
