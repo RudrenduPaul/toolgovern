@@ -76,6 +76,54 @@ export function stringifyArgs(args: Readonly<Record<string, unknown>>): string {
   return parts.join(' ').toLowerCase();
 }
 
+/** Zero-width, bidi-control, and other invisible-format Unicode characters sometimes inserted
+ *  mid-token to break a literal-substring or `\b` word-boundary match (e.g. `sudo` with a
+ *  zero-width space spliced in). Stripped before pattern matching, never before execution.
+ *  Ranges (by escape, not pasted glyph, so the intent is unambiguous in source and diffs):
+ *  U+00AD soft hyphen, U+200B-200F zero-width space/joiners/marks, U+202A-202E bidi
+ *  embedding/override controls, U+2060-2064 word joiner/invisible operators, U+FEFF BOM. */
+const INVISIBLE_FORMAT_CHARS = new RegExp(
+  '[\\u00AD\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\uFEFF]',
+  'g',
+);
+
+/** `$IFS` / `${IFS}` (optionally with a positional-parameter suffix like `$9`) is a well-known
+ *  shell field-separator substitution attackers use in place of a literal space specifically to
+ *  dodge whitespace-based pattern matching, without changing what the shell actually executes. */
+const IFS_SEPARATOR = /\$\{?IFS\}?(\$\d+)?/gi;
+
+/** An adjacent pair of matching quote characters (`''` or `""`) contributes nothing to what a
+ *  POSIX shell actually runs -- `r""m -rf /` and `rm -rf /` execute identically -- but it does
+ *  break a naive literal-substring match against `rm`. Collapsed here, repeatedly, so stacked
+ *  pairs (`r""""m`) are fully removed. */
+function collapseEmptyQuotePairs(text: string): string {
+  let current = text;
+  let previous: string;
+  do {
+    previous = current;
+    current = current.replace(/(['"])\1/g, '');
+  } while (current !== previous);
+  return current;
+}
+
+/**
+ * Normalizes free-form command/argument text before it is matched against a classifier pattern.
+ * This does not change what actually gets executed -- it only closes the gap between "what the
+ * shell will run" and "what a literal regex sees" for a handful of well-known obfuscation tricks:
+ * Unicode confusables/invisible characters, `$IFS`-as-space substitution, and empty-quote-pair
+ * token splitting (`cu''rl`, `r""m`). It intentionally does not attempt full shell-grammar
+ * parsing -- see `docs/security-model.md` for what obfuscation shapes remain out of scope for a
+ * regex-based, per-call classifier.
+ */
+export function normalizeForMatch(text: string): string {
+  let normalized = text.normalize('NFKC');
+  normalized = normalized.replace(INVISIBLE_FORMAT_CHARS, '');
+  normalized = normalized.replace(IFS_SEPARATOR, ' ');
+  normalized = collapseEmptyQuotePairs(normalized);
+  normalized = normalized.replace(/\\([A-Za-z0-9])/g, '$1');
+  return normalized;
+}
+
 /** Best-effort hostname extraction from a bare host string or a full URL. Re-exported from
  *  `shared/paths.ts` so existing rule imports keep working. */
 export const normalizeHost = sharedNormalizeHost;
@@ -98,9 +146,9 @@ export const isIpLiteral = sharedIsIpLiteral;
  */
 export function extractCandidateHost(args: Readonly<Record<string, unknown>>): string | undefined {
   const explicit = extractHost(args);
-  if (explicit) return sharedNormalizeHost(explicit);
+  if (explicit) return sharedNormalizeHost(normalizeForMatch(explicit));
 
-  const command = extractCommand(args) ?? stringifyArgs(args);
+  const command = normalizeForMatch(extractCommand(args) ?? stringifyArgs(args));
   const urlMatch = command.match(/https?:\/\/[^\s"'|]+/i);
   if (urlMatch) return sharedNormalizeHost(urlMatch[0]);
   return undefined;

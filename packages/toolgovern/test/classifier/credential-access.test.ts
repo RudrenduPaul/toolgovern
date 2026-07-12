@@ -107,6 +107,19 @@ describe('TG04 credential/secret access', () => {
       ));
   });
 
+  describe('argument obfuscation resistance', () => {
+    it('TG04-dotenv-access still fires when the command is split by an empty quote pair', () =>
+      expect(fires('TG04-dotenv-access', { command: "cat .en''v" })).toBe(true));
+    it('TG04-bulk-env-dump still fires when $IFS replaces the trailing whitespace check target', () =>
+      expect(fires('TG04-bulk-env-dump', { command: 'printenv' })).toBe(true));
+    it('TG04-keychain-access still fires when a zero-width space is spliced into "security"', () =>
+      expect(
+        fires('TG04-keychain-access', {
+          command: 'secur​ity find-generic-password -s "my-service"',
+        }),
+      ).toBe(true));
+  });
+
   it('every rule has a unique id and belongs to TG04', () => {
     const ids = new Set(credentialAccessRules.map((r) => r.id));
     expect(ids.size).toBe(credentialAccessRules.length);

@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { TraceWriter } from 'toolgovern';
 import { auditCommand, parseArgs, runCommand, validateCommand } from '../src/cli.js';
 
 const tempDirs: string[] = [];
@@ -151,6 +152,62 @@ describe('auditCommand', () => {
     // the flag is wired up and reports a structured failure rather than crashing.
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(/CHAIN INVALID/);
+  });
+
+  it('verifies an hmac-signed trace when --key-file points at the matching key', async () => {
+    const dir = await tempDir();
+    const traceFilePath = join(dir, 'trace.jsonl');
+    const keyFilePath = join(dir, 'trace-key.bin');
+    await writeFile(keyFilePath, 'a-test-secret-key', 'utf8');
+    const secretKey = await (await import('node:fs/promises')).readFile(keyFilePath);
+
+    const writer = new TraceWriter(traceFilePath, { secretKey });
+    await writer.append({
+      sessionId: 's1',
+      agentId: 'coordinator',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: { network: false, filesystem: [], credentials: [] },
+    });
+
+    const result = await auditCommand(traceFilePath, {
+      'verify-chain': true,
+      'key-file': keyFilePath,
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/Chain OK/);
+  });
+
+  it('reports a chain failure (not a crash) when --key-file is missing for an hmac-signed trace', async () => {
+    const dir = await tempDir();
+    const traceFilePath = join(dir, 'trace.jsonl');
+    const writer = new TraceWriter(traceFilePath, { secretKey: Buffer.from('some-key') });
+    await writer.append({
+      sessionId: 's1',
+      agentId: 'coordinator',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: { network: false, filesystem: [], credentials: [] },
+    });
+
+    const result = await auditCommand(traceFilePath, { 'verify-chain': true });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/no secretKey was supplied/);
+  });
+
+  it('returns code 1 with a clear message when --key-file itself does not exist', async () => {
+    const dir = await tempDir();
+    const filePath = await writeTraceFile(dir);
+    const result = await auditCommand(filePath, {
+      'verify-chain': true,
+      'key-file': '/nonexistent/trace-key.bin',
+    });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Failed to read --key-file/);
   });
 });
 
