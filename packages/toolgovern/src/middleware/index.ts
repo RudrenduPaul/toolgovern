@@ -7,3 +7,4 @@ export {
   type ApprovalHandler,
   type ApprovalOutcome,
 } from './onToolCall.js';
+export { IdempotencyCache, type IdempotencyOptions } from './idempotency-cache.js';
