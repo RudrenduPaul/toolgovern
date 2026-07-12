@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ScopeRegistry, computeInheritedScope } from '../../src/scoping/inheritance-enforcer.js';
+import {
+  ScopeRegistry,
+  computeInheritedScope,
+  hasZeroCapability,
+} from '../../src/scoping/inheritance-enforcer.js';
 import { EMPTY_SCOPE } from '../../src/scoping/scope-declaration.js';
 
 describe('computeInheritedScope', () => {
@@ -159,5 +163,72 @@ describe('ScopeRegistry', () => {
     expect(registry.getEffectiveScope('nobody')).toBeUndefined();
     expect(registry.getRecord('nobody')).toBeUndefined();
     expect(registry.has('nobody')).toBe(false);
+  });
+
+  describe('isZeroCapability', () => {
+    it('is true for a sub-agent whose coordinator had nothing to grant', () => {
+      const registry = new ScopeRegistry();
+      registry.registerRootAgent('coordinator', 's1', EMPTY_SCOPE);
+      registry.spawnSubAgent({
+        coordinatorId: 'coordinator',
+        subAgentId: 'no-tools-sub',
+        sessionId: 's1',
+        requestedScope: { network: true, filesystem: ['/'], credentials: ['anything'] },
+      });
+      expect(registry.isZeroCapability('no-tools-sub')).toBe(true);
+    });
+
+    it('is false once the coordinator grants even one capability', () => {
+      const registry = new ScopeRegistry();
+      registry.registerRootAgent('coordinator', 's1', {
+        network: false,
+        filesystem: ['./workspace'],
+        credentials: [],
+      });
+      registry.spawnSubAgent({
+        coordinatorId: 'coordinator',
+        subAgentId: 'scoped-sub',
+        sessionId: 's1',
+        requestedScope: { network: false, filesystem: ['./workspace'], credentials: [] },
+      });
+      expect(registry.isZeroCapability('scoped-sub')).toBe(false);
+    });
+
+    it('is false for an unregistered agent (that case is a different failure mode)', () => {
+      const registry = new ScopeRegistry();
+      expect(registry.isZeroCapability('nobody')).toBe(false);
+    });
+  });
+});
+
+describe('hasZeroCapability', () => {
+  it('is true for the empty scope', () => {
+    expect(hasZeroCapability(EMPTY_SCOPE)).toBe(true);
+  });
+
+  it('is false when network is unrestricted even with no filesystem/credentials', () => {
+    expect(hasZeroCapability({ network: true, filesystem: [], credentials: [] })).toBe(false);
+  });
+
+  it('is false when network is a non-empty allowlist', () => {
+    expect(
+      hasZeroCapability({ network: ['example.com'], filesystem: [], credentials: [] }),
+    ).toBe(false);
+  });
+
+  it('is false when at least one filesystem prefix is granted', () => {
+    expect(hasZeroCapability({ network: false, filesystem: ['./workspace'], credentials: [] })).toBe(
+      false,
+    );
+  });
+
+  it('is false when at least one credential is granted', () => {
+    expect(
+      hasZeroCapability({ network: false, filesystem: [], credentials: ['.aws/credentials'] }),
+    ).toBe(false);
+  });
+
+  it('is true for an empty network allowlist plus no filesystem/credentials', () => {
+    expect(hasZeroCapability({ network: [], filesystem: [], credentials: [] })).toBe(true);
   });
 });
