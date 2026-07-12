@@ -117,10 +117,14 @@ export interface TraceEntryInput {
 }
 
 /**
- * One append-only, signed trace record. `signature` is the sha256 hex digest of this entry's
- * canonicalized content (everything except `signature` itself), and `prior_trace_id` chains it
- * to the entry before it in the same session -- together these let a reader detect a missing,
- * reordered, or tampered entry without needing a PKI signing key.
+ * One append-only, signed trace record. `signature` is either `sha256:<hex>` (an unkeyed content
+ * hash of everything except `signature` itself -- the default) or `hmac-sha256:<hex>` (a keyed
+ * signature, when `TraceWriter` is given a `secretKey`; see `TraceWriterOptions`). `prior_trace_id`
+ * chains this entry to the one before it in the same session -- together these let a reader detect
+ * a missing, reordered, or tampered entry. The unkeyed form does not require managing a signing
+ * key, but it also does not authenticate who wrote an entry, and does not stop an attacker with
+ * write access to the trace file from editing an entry and recomputing a signature that still
+ * verifies -- see `docs/security-model.md`.
  */
 export interface TraceEntry {
   readonly trace_id: string;

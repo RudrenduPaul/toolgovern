@@ -4,8 +4,9 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import type { BinaryLike } from 'node:crypto';
 import type { Decision, TraceEntry } from '../types.js';
-import { computeEntryContentHash } from './trace-writer.js';
+import { computeEntrySignature } from './trace-writer.js';
 
 export interface TraceQuery {
   /** A relative time window, e.g. `'24h'`, `'7d'`, `'30m'`, or an absolute ISO 8601 timestamp. */
@@ -24,6 +25,12 @@ export interface ChainVerificationIssue {
 export interface ChainVerificationResult {
   readonly valid: boolean;
   readonly issues: readonly ChainVerificationIssue[];
+}
+
+export interface VerifyChainOptions {
+  /** Required to verify entries signed with `hmac-sha256:` (see `TraceWriterOptions.secretKey`).
+   *  Entries signed with the legacy unkeyed `sha256:` scheme verify without it. */
+  readonly secretKey?: BinaryLike;
 }
 
 /** Reads and parses every line of a JSON Lines trace file. Blank lines are skipped. */
@@ -77,20 +84,39 @@ export function filterTrace(entries: readonly TraceEntry[], query: TraceQuery): 
 }
 
 /**
- * Recomputes each entry's content hash and confirms it matches `signature`, and confirms
+ * Recomputes each entry's signature and confirms it matches `signature`, and confirms
  * `prior_trace_id` correctly links to the previous entry in the same session. Returns every
  * issue found rather than stopping at the first one, so a reviewer can see the full extent of a
  * broken or tampered trace file.
+ *
+ * An entry signed `hmac-sha256:` cannot be verified without the matching `secretKey` -- that is
+ * reported as an issue (not silently skipped, and not silently treated as valid), because a
+ * trace a reviewer cannot actually verify is not a trace they should trust as-is.
  */
-export function verifyChain(entries: readonly TraceEntry[]): ChainVerificationResult {
+export function verifyChain(
+  entries: readonly TraceEntry[],
+  options: VerifyChainOptions = {},
+): ChainVerificationResult {
   const issues: ChainVerificationIssue[] = [];
   const lastSeenBySession = new Map<string, string | null>();
 
   for (const entry of entries) {
-    const expectedHash = computeEntryContentHash(entry);
-    const [, actualHash] = entry.signature.split('sha256:');
-    if (actualHash !== expectedHash) {
-      issues.push({ traceId: entry.trace_id, reason: 'Signature does not match entry content.' });
+    const scheme = entry.signature.split(':', 1)[0];
+    if (scheme === 'hmac-sha256' && !options.secretKey) {
+      issues.push({
+        traceId: entry.trace_id,
+        reason: 'Entry is signed with hmac-sha256 but no secretKey was supplied to verify it.',
+      });
+    } else if (scheme === 'hmac-sha256' || scheme === 'sha256') {
+      const expected = computeEntrySignature(entry, options.secretKey);
+      if (entry.signature !== expected) {
+        issues.push({ traceId: entry.trace_id, reason: 'Signature does not match entry content.' });
+      }
+    } else {
+      issues.push({
+        traceId: entry.trace_id,
+        reason: `Unrecognized signature scheme "${scheme}".`,
+      });
     }
 
     const expectedPrior = lastSeenBySession.get(entry.session_id) ?? null;
