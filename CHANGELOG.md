@@ -45,6 +45,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   before this fix, passing `--key-file` against a trace that was never hmac-signed made every
   legitimate entry spuriously fail chain verification, found during manual end-to-end CLI testing
 
+## [0.1.1] - 2026-07-12
+
+### Added
+
+- `packages/toolgovern/README.md` and `packages/toolgovern-cli/README.md` -- both published
+  packages shipped with zero README content until this release (`npm view toolgovern readme`
+  returned "No README data found!"); each package now has its own focused, fact-checked
+  documentation, not just a copy of the monorepo root README
+- `TG02-read-outside-scope` and `TG05-zero-capability-sub-agent` now have real corpus coverage in
+  `benchmarks/corpus.ts` (they shipped with zero test cases) -- extending the corpus surfaced a
+  real false-positive bug, fixed in the same pass (see Fixed, below)
+- Root README comparison table: a verified comparison against Microsoft's Agent Governance
+  Toolkit, NVIDIA NeMo Guardrails, and LangGraph's human-in-the-loop middleware, replacing the
+  previous prose-only "how it differs" section
+- CI, npm version, and license badges; a table of contents; an FAQ section in the root README
+- `governedTool()` in `integrations/oma/` -- a per-tool, registration-time wrap matching OMA's own
+  reference implementation (`node_runner`'s `wrapToolWithEvents()`), alongside the existing
+  dispatcher-shaped `governedExecutor`
+
+### Fixed
+
+- `TG02-read-outside-scope` fired `require-approval` on a credential file read even when that
+  exact credential was explicitly granted via `scope.credentials` -- it only checked
+  `scope.filesystem`, duplicating a check `TG04`'s rules already performed correctly.
+  `isCredentialGranted()` moved to the shared `util.ts` and is now checked by both categories, so
+  an explicit credential grant is honored consistently regardless of which rule sees the call
+  first
+- Rule-count and benchmark numbers across the README, `benchmarks/README.md`, and
+  `docs/policy-schema.md` were stale and mutually inconsistent (variously citing 31, 32, or the
+  wrong per-category counts) after `TG02-read-outside-scope` and `TG05-zero-capability-sub-agent`
+  shipped without a docs update -- corrected everywhere to the current, verified count (34 rules)
+  and re-measured against the real, current codebase (116-case corpus, 100.0% detection, 0.0%
+  false-positive rate)
+
 ## [0.1.0] - 2026-07-11
 
 Initial v0.1 build.

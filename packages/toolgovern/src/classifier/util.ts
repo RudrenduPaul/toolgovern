@@ -270,3 +270,16 @@ export function extractCredentialIdentifier(
 ): string | undefined {
   return extractCredentialName(args) ?? extractPath(args);
 }
+
+/** Whether `identifier` (a path or a named credential) matches an entry in `credentials` --
+ *  exact match, a trailing path segment match (".../aws" grants ".aws/credentials"), or a
+ *  substring match. Shared between TG04 (credential access) and TG02's read-outside-scope rule,
+ *  so a credential explicitly granted via `scope.credentials` is recognized as authorized by
+ *  both, not just the rule category it was originally written for. */
+export function isCredentialGranted(identifier: string, credentials: readonly string[]): boolean {
+  const lower = identifier.toLowerCase();
+  return credentials.some((granted) => {
+    const g = granted.toLowerCase();
+    return lower === g || lower.endsWith(`/${g}`) || lower.includes(g);
+  });
+}

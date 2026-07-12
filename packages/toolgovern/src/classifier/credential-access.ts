@@ -11,6 +11,7 @@ import {
   extractCommand,
   extractCredentialName,
   extractPath,
+  isCredentialGranted,
   normalizeForMatch,
   stringifyArgs,
 } from './util.js';
@@ -24,14 +25,6 @@ function match(
   matchedArgument: string,
 ): RuleMatch {
   return { ruleId: rule.id, category: rule.category, decision, reason, matchedArgument };
-}
-
-function isCredentialGranted(identifier: string, credentials: readonly string[]): boolean {
-  const lower = identifier.toLowerCase();
-  return credentials.some((granted) => {
-    const g = granted.toLowerCase();
-    return lower === g || lower.endsWith(`/${g}`) || lower.includes(g);
-  });
 }
 
 /** `text` is normalized (see `normalizeForMatch`) before pattern matching, so the same

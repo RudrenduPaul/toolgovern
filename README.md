@@ -114,15 +114,15 @@ actually has, checked on every call it makes, not just validated once when it sp
 
 ### Rule pack (v0.1)
 
-| Category                               | What it catches                                                                                                                   | Rules |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| TG01 Shell/Process Execution Risk      | `rm -rf`, pipe-to-shell, `sudo`, `chmod 777`, fork bombs, reverse shells, raw disk writes, decode-then-execute obfuscation        | 8     |
-| TG02 Filesystem Scope Escalation       | Write/delete/chmod outside the declared filesystem scope, path traversal, symlink escape, sensitive system directories            | 6     |
-| TG03 Undeclared Network Egress         | Hosts outside the declared allowlist, raw IP literals, non-standard ports, DNS-exfil-shaped subdomains, known paste/tunnel relays | 6     |
-| TG04 Credential/Secret Access          | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope               | 6     |
-| TG05 Cross-Agent Privilege Inheritance | A sub-agent call outside what its coordinator actually granted, including a coordinator's own scope shrinking mid-session         | 5     |
+| Category                               | What it catches                                                                                                                                                                                      | Rules |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| TG01 Shell/Process Execution Risk      | `rm -rf`, pipe-to-shell, `sudo`, `chmod 777`, fork bombs, reverse shells, raw disk writes, decode-then-execute obfuscation, context-flooding reads                                                   | 9     |
+| TG02 Filesystem Scope Escalation       | Write/delete/chmod outside the declared filesystem scope, reads outside scope, path traversal, symlink escape, sensitive system directories                                                          | 7     |
+| TG03 Undeclared Network Egress         | Hosts outside the declared allowlist, raw IP literals (including IPv6), non-standard ports, DNS-exfil-shaped subdomains, known paste/tunnel relays, deny (not approval) for private/metadata targets | 6     |
+| TG04 Credential/Secret Access          | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope                                                                                  | 6     |
+| TG05 Cross-Agent Privilege Inheritance | A sub-agent call outside what its coordinator actually granted, a zero-capability sub-agent attempting any call, a coordinator's own scope shrinking mid-session                                     | 6     |
 
-31 rules total. Two more categories aren't in v0.1: TG06 (high-risk tool combinations across a
+34 rules total. Two more categories aren't in v0.1: TG06 (high-risk tool combinations across a
 session) and TG07 (retrying a denied call with modified arguments) both need cross-call session
 state that this classifier doesn't yet keep, since it evaluates one call at a time with no memory
 of prior calls. That's a stated limitation, not a hidden one.
@@ -135,7 +135,7 @@ By default, a call that matches no rule at all is allowed, not denied -- `govern
 `defaultDecision` option defaults to `'allow'`, favoring usability over a hard fail-closed
 posture out of the box. If you want unrecognized calls to require approval or be denied instead,
 set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
-"nothing could have gone wrong" -- it means "checked against 31 rules, none fired."
+"nothing could have gone wrong" -- it means "checked against 34 rules, none fired."
 
 ## How it compares to other agent governance projects
 
@@ -167,7 +167,7 @@ input/output, and LangGraph's HITL is a manual pause-and-ask primitive with no a
 classification underneath it. Listing them here is about scope, not a claim that toolgovern beats
 them at their own task.
 
-Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 31 rules
+Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 34 rules
 that already exist -- no policy authoring, no identity system to stand up, no separate services to
 run. AGT is infrastructure you deploy; toolgovern is a library you import. If you want a curated
 rule set with zero configuration and you're fine running it yourself with no vendor and no
@@ -183,19 +183,18 @@ below is a summary of that file, not a separate claim.
 
 | Category                               | Rule checks | Detection rate     | False-positive rate |
 | -------------------------------------- | ----------- | ------------------ | ------------------- |
-| TG01 Shell/Process Execution Risk      | 8           | 100.0% (16/16)     | 0.0% (0/13)         |
-| TG02 Filesystem Scope Escalation       | 6           | 100.0% (13/13)     | 0.0% (0/9)          |
+| TG01 Shell/Process Execution Risk      | 9           | 100.0% (16/16)     | 0.0% (0/13)         |
+| TG02 Filesystem Scope Escalation       | 7           | 100.0% (14/14)     | 0.0% (0/10)         |
 | TG03 Undeclared Network Egress         | 6           | 100.0% (12/12)     | 0.0% (0/9)          |
 | TG04 Credential/Secret Access          | 6           | 100.0% (13/13)     | 0.0% (0/9)          |
-| TG05 Cross-Agent Privilege Inheritance | 5           | 100.0% (9/9)       | 0.0% (0/9)          |
-| **Overall**                            | **31**      | **100.0% (63/63)** | **0.0% (0/49)**     |
+| TG05 Cross-Agent Privilege Inheritance | 6           | 100.0% (10/10)     | 0.0% (0/10)         |
+| **Overall**                            | **34**      | **100.0% (65/65)** | **0.0% (0/51)**     |
 
 Per-call classifier latency, in-process with no network round-trip, measured across 5,000 calls
-per run over 3 runs: mean 6.7-7.0 microseconds, p50 6.5-6.6 microseconds, p95 8.9-9.5 microseconds,
-p99 11.5-16.0 microseconds. See `benchmarks/README.md` for an earlier, higher run captured under
-heavier machine load and why that's expected for a wall-clock microbenchmark.
+per run over 3 runs: mean 7.8-8.2 microseconds, p50 7.5-7.6 microseconds, p95 10.3-10.7 microseconds,
+p99 14.6-27.6 microseconds. See `benchmarks/README.md` for the full methodology and per-run numbers.
 
-Read the detection-rate number honestly: it's 100% on a 112-case corpus the maintainers wrote to
+Read the detection-rate number honestly: it's 100% on a 116-case corpus the maintainers wrote to
 match the rules the maintainers wrote, including obfuscated variants (base64-decode-then-execute,
 empty-quote-pair splitting, invisible Unicode characters, `$IFS`-as-space substitution) closed
 during a security-hardening pass documented in `docs/security-model.md`. It isn't a claim that
@@ -324,7 +323,7 @@ bridge. If your framework is Python- or .NET-based, `governTool()` isn't somethi
 your tools in without a bridge that doesn't exist yet.
 
 **Does it detect every risky tool call?**
-No, and the README says so on purpose. The 31 rules are checked honestly against a 112-case corpus
+No, and the README says so on purpose. The 34 rules are checked honestly against a 116-case corpus
 the maintainers wrote (see Benchmarks below) -- that's a claim about the rules doing what they were
 designed to do, not a claim that every real-world risky call gets caught. A technique outside the
 corpus could still get through.
