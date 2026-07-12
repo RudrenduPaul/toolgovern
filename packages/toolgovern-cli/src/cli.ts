@@ -14,7 +14,14 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { validatePolicy, filterTrace, readTrace, verifyChain, type TraceQuery } from 'toolgovern';
+import {
+  validatePolicy,
+  filterTrace,
+  readTrace,
+  verifyChain,
+  type TraceQuery,
+  type TraceEntry,
+} from 'toolgovern';
 
 export interface CliResult {
   readonly code: number;
@@ -149,7 +156,16 @@ export async function auditCommand(
     ruleId: typeof flags.rule === 'string' ? flags.rule : undefined,
   };
 
-  const filtered = filterTrace(entries, query);
+  // filterTrace() throws on a malformed --since value (e.g. an unsupported unit like "1s") --
+  // that is a user input-validation error, not an unexpected crash, so it gets the same clean,
+  // no-stack-trace treatment as an invalid --decision above (exit code 2), not the generic
+  // "Unexpected error" handler in main().
+  let filtered: TraceEntry[];
+  try {
+    filtered = filterTrace(entries, query);
+  } catch (error) {
+    return { code: 2, stdout: '', stderr: `${(error as Error).message}\n` };
+  }
   for (const entry of filtered) {
     const rules = entry.rule_fired.length > 0 ? entry.rule_fired.join(', ') : '(no rule fired)';
     stdout += `${entry.decision.toUpperCase().padEnd(16)} ${entry.agent_id} -> ${entry.tool}  [${rules}]  ${entry.timestamp}\n`;

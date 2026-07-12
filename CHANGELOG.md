@@ -34,6 +34,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 - `governTool()`: a throwing/rejecting `onApprovalRequired` handler now fails closed like a
   timeout, instead of skipping the trace write and leaking a raw, untyped error
+- `toolgovern-cli audit --since <bad-value>` (e.g. an unsupported unit like `1s`) now returns a
+  clean, code-2 error instead of crashing with a raw stack trace
+- `verifyChain({ secretKey })` no longer applies the supplied key to `sha256:`-scheme entries --
+  before this fix, passing `--key-file` against a trace that was never hmac-signed made every
+  legitimate entry spuriously fail chain verification, found during manual end-to-end CLI testing
 
 ## [0.1.0] - 2026-07-11
 

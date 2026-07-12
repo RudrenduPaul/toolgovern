@@ -138,6 +138,15 @@ describe('auditCommand', () => {
     expect(result.code).toBe(1);
   });
 
+  it('returns a clean code-2 error (not a raw stack trace) for an unsupported --since unit', async () => {
+    const dir = await tempDir();
+    const filePath = await writeTraceFile(dir);
+    const result = await auditCommand(filePath, { since: '1s' });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/Invalid --since value "1s"/);
+    expect(result.stderr).not.toMatch(/at parseSince|at filterTrace|\.js:\d+:\d+/);
+  });
+
   it('returns code 2 when no trace file argument is given', async () => {
     const result = await auditCommand(undefined, {});
     expect(result.code).toBe(2);
@@ -152,6 +161,34 @@ describe('auditCommand', () => {
     // the flag is wired up and reports a structured failure rather than crashing.
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(/CHAIN INVALID/);
+  });
+
+  it('verifies an unkeyed (sha256) trace fine even when --key-file is passed anyway (regression)', async () => {
+    const dir = await tempDir();
+    const traceFilePath = join(dir, 'trace.jsonl');
+    const keyFilePath = join(dir, 'trace-key.bin');
+    await writeFile(keyFilePath, 'some-key-that-was-never-used-to-sign-anything', 'utf8');
+
+    const writer = new TraceWriter(traceFilePath); // default unkeyed sha256 scheme
+    await writer.append({
+      sessionId: 's1',
+      agentId: 'coordinator',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: { network: false, filesystem: [], credentials: [] },
+    });
+
+    // Before the fix, supplying --key-file for a trace that was never hmac-signed made every
+    // entry spuriously fail chain verification, because the key was applied regardless of the
+    // entry's own signature scheme.
+    const result = await auditCommand(traceFilePath, {
+      'verify-chain': true,
+      'key-file': keyFilePath,
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/Chain OK/);
   });
 
   it('verifies an hmac-signed trace when --key-file points at the matching key', async () => {
