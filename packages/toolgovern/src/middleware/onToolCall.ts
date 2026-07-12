@@ -64,6 +64,19 @@ export interface GovernToolOptions extends Policy {
   /** Fires after every gate decision, allow/deny/require-approval alike, after the trace entry
    *  (if any) has been written. Useful for a live console/log, not part of the gate itself. */
   readonly onDecision?: (info: GateDecisionInfo) => void;
+  /**
+   * Optional post-execution hook. Once a call is allowed and `tool.execute()` has run (or
+   * thrown), the raw result -- or the thrown error, if `execute()` rejected/threw -- is passed
+   * through this function before anything is returned to the caller. Whatever `onToolResult`
+   * returns is what the gated tool actually returns, which is the only supported way to
+   * redact, sanitize, or otherwise gate a tool's *output* (v0.1's classifier only evaluates
+   * pre-execution arguments). This is intentionally scoped: there is no signal distinguishing a
+   * success value from a caught error other than `instanceof Error` (or similar) on the first
+   * argument -- callers that need to keep treating tool errors as errors should re-throw from
+   * inside this hook. Omitted entirely means the raw result/error passes straight through
+   * unchanged, so this is fully backward-compatible.
+   */
+  readonly onToolResult?: (result: unknown, ctx: RuleContext) => unknown;
 }
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 30_000;
@@ -209,7 +222,22 @@ export function governTool<Args extends Record<string, unknown>, Result>(
       if (finalDecision === 'deny') {
         throw new ToolGovernDenialError(info);
       }
-      return tool.execute(args);
+
+      // A thrown/rejected `execute()` is caught here rather than left to propagate directly, so
+      // `onToolResult` (when provided) gets a chance to see it -- e.g. to redact a leaked file
+      // path in an error message -- before anything reaches the caller. With no `onToolResult`,
+      // behavior is unchanged: a caught error is simply rethrown.
+      try {
+        const result = await tool.execute(args);
+        return options.onToolResult
+          ? (options.onToolResult(result, ruleContext) as Result)
+          : result;
+      } catch (error) {
+        if (options.onToolResult) {
+          return options.onToolResult(error, ruleContext) as Result;
+        }
+        throw error;
+      }
     },
   };
 }
