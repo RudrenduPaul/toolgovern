@@ -7,7 +7,13 @@
  */
 
 import type { Rule, RuleMatch } from '../types.js';
-import { containsPathTraversal, extractOperation, extractPath, isPathWithin } from './util.js';
+import {
+  containsPathTraversal,
+  extractOperation,
+  extractPath,
+  isCredentialGranted,
+  isPathWithin,
+} from './util.js';
 
 const category = 'TG02' as const;
 
@@ -99,7 +105,10 @@ const readOutsideScope: Rule = {
     'scope, so any concrete path read is out of scope and flagged. A caller with `filesystem: []` ' +
     'but a non-empty network or credential grant (a realistic partial grant) still gets its reads ' +
     'checked here -- it is not "zero capability" and TG05 zero-capability denial does not cover ' +
-    'it, so this rule must not no-op just because no filesystem prefix was declared.',
+    'it, so this rule must not no-op just because no filesystem prefix was declared. Exception: a ' +
+    'path matching an entry explicitly granted via `scope.credentials` (the same check TG04 uses) ' +
+    'is not flagged here -- that grant is the authorization for that specific resource, and ' +
+    'requiring approval on top of it would be redundant friction, not defense in depth.',
   evaluate(ctx) {
     const path = extractPath(ctx.args);
     if (!path) return null;
@@ -107,6 +116,7 @@ const readOutsideScope: Rule = {
       extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('read') ? 'read' : '');
     if (!READ_OPS.has(op)) return null;
     if (isWithinScope(path, ctx.scope.filesystem)) return null;
+    if (isCredentialGranted(path, ctx.scope.credentials)) return null;
     return match(
       this,
       'require-approval',

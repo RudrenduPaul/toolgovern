@@ -1,6 +1,6 @@
 {
   "name": "toolgovern",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runtime governance middleware for AI agent tool calls -- gate shell, filesystem, network, and credential access before a tool executes.",
   "license": "Apache-2.0",
   "type": "module",

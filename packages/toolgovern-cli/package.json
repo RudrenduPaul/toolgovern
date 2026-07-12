@@ -1,6 +1,6 @@
 {
   "name": "toolgovern-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI for toolgovern -- validate policy files and audit local gate traces.",
   "license": "Apache-2.0",
   "type": "module",
@@ -26,7 +26,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "toolgovern": "0.1.0",
+    "toolgovern": "0.1.1",
     "yaml": "^2.6.1"
   },
   "devDependencies": {

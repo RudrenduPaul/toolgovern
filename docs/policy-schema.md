@@ -43,6 +43,6 @@ policy file without loading it into a program.
 ## Rule IDs
 
 See `packages/toolgovern/src/classifier/index.ts`'s `ruleRegistry` for the authoritative list.
-As of v0.1: `TG01-*` (9 rules), `TG02-*` (6 rules), `TG03-*` (6 rules), `TG04-*` (6 rules),
-`TG05-*` (5 rules) -- 32 rules total. Each rule file documents its own rules with a description
+As of v0.1: `TG01-*` (9 rules), `TG02-*` (7 rules), `TG03-*` (6 rules), `TG04-*` (6 rules),
+`TG05-*` (6 rules) -- 34 rules total. Each rule file documents its own rules with a description
 comment.
