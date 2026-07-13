@@ -1,10 +1,12 @@
 {
-  "name": "toolgovern-integration-oma",
+  "name": "toolgovern-integration-langgraph",
   "version": "0.1.0",
   "private": false,
-  "description": "Adapter shapes (per-tool governedTool and dispatcher-style governedExecutor) for wiring toolgovern into an open-multi-agent-style tool-executor call site.",
+  "description": "Route LangGraph.js tool calls through toolgovern's governTool() gate before they reach ToolNode -- wraps each tool with the classifier, then re-wraps it with LangChain's own tool() factory so it slots into new ToolNode([...]) unchanged.",
   "keywords": [
-    "open-multi-agent",
+    "langgraph",
+    "langgraphjs",
+    "langchain",
     "ai-agents",
     "agent-security",
     "runtime-governance",
@@ -30,7 +32,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RudrenduPaul/toolgovern.git",
-    "directory": "integrations/oma"
+    "directory": "integrations/langgraph"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -40,7 +42,14 @@
   "dependencies": {
     "toolgovern": "0.1.1"
   },
+  "peerDependencies": {
+    "@langchain/core": "^1.1.48",
+    "@langchain/langgraph": "^1.0.0"
+  },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "@langchain/core": "^1.2.2",
+    "@langchain/langgraph": "^1.4.7",
+    "typescript": "^5.7.2",
+    "zod": "^4.2.0"
   }
 }

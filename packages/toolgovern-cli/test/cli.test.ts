@@ -3,7 +3,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TraceWriter } from 'toolgovern';
-import { auditCommand, parseArgs, runCommand, validateCommand } from '../src/cli.js';
+import { existsSync, readFileSync } from 'node:fs';
+import {
+  auditCommand,
+  detectFrameworks,
+  initCommand,
+  parseArgs,
+  runCommand,
+  validateCommand,
+} from '../src/cli.js';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -284,5 +292,148 @@ describe('runCommand', () => {
   it('prints usage and exits 2 for no command at all', async () => {
     const result = await runCommand([]);
     expect(result.code).toBe(2);
+  });
+});
+
+describe('detectFrameworks', () => {
+  it('detects langgraph from a dependency', () => {
+    const detected = detectFrameworks({ dependencies: { '@langchain/langgraph': '^1.0.0' } });
+    expect(detected).toEqual(['langgraph']);
+  });
+
+  it('detects oma from either open-multi-agent or node_runner', () => {
+    expect(detectFrameworks({ dependencies: { 'open-multi-agent': '^1.0.0' } })).toEqual(['oma']);
+    expect(detectFrameworks({ devDependencies: { node_runner: '^1.0.0' } })).toEqual(['oma']);
+  });
+
+  it('returns an empty array when nothing matches', () => {
+    expect(detectFrameworks({ dependencies: { express: '^4.0.0' } })).toEqual([]);
+  });
+
+  it('detects both frameworks when both dependencies are present', () => {
+    const detected = detectFrameworks({
+      dependencies: { '@langchain/langgraph': '^1.0.0', 'open-multi-agent': '^1.0.0' },
+    });
+    expect(detected.sort()).toEqual(['langgraph', 'oma']);
+  });
+});
+
+describe('initCommand', () => {
+  it('scaffolds a real langgraph integration file when the framework is named explicitly', async () => {
+    const dir = await tempDir();
+    const result = initCommand('langgraph', {}, dir);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/Scaffolded langgraph integration/);
+
+    const outFile = join(dir, 'toolgovern.langgraph.ts');
+    expect(existsSync(outFile)).toBe(true);
+    const written = readFileSync(outFile, 'utf8');
+    expect(written).toContain("from 'toolgovern-integration-langgraph'");
+    expect(written).toContain('governedLangGraphTools');
+    expect(written).toContain("loadPolicy('./toolgovern.policy.yml')");
+  });
+
+  it('scaffolds a real oma integration file when the framework is named explicitly', async () => {
+    const dir = await tempDir();
+    const result = initCommand('oma', {}, dir);
+
+    expect(result.code).toBe(0);
+    const outFile = join(dir, 'toolgovern.oma.ts');
+    expect(existsSync(outFile)).toBe(true);
+    const written = readFileSync(outFile, 'utf8');
+    expect(written).toContain("from 'toolgovern-integration-oma'");
+    expect(written).toContain('governedTool');
+  });
+
+  it('auto-detects the framework from package.json when none is named', async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@langchain/langgraph': '^1.0.0' } }),
+      'utf8',
+    );
+
+    const result = initCommand(undefined, {}, dir);
+
+    expect(result.code).toBe(0);
+    expect(existsSync(join(dir, 'toolgovern.langgraph.ts'))).toBe(true);
+  });
+
+  it('respects a custom --policy path in the generated file', async () => {
+    const dir = await tempDir();
+    const result = initCommand('oma', { policy: './my-policy.yml' }, dir);
+
+    expect(result.code).toBe(0);
+    const written = readFileSync(join(dir, 'toolgovern.oma.ts'), 'utf8');
+    expect(written).toContain("loadPolicy('./my-policy.yml')");
+  });
+
+  it('respects a custom --out path', async () => {
+    const dir = await tempDir();
+    const result = initCommand('oma', { out: 'src/gate.ts' }, dir);
+
+    expect(result.code).toBe(0);
+    expect(existsSync(join(dir, 'src', 'gate.ts'))).toBe(true);
+  });
+
+  it('rejects an unknown framework name', () => {
+    const result = initCommand('crewai', {}, '/tmp');
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/Unknown framework/);
+  });
+
+  it('returns code 1 when no framework is named and package.json has no supported dependency', async () => {
+    const dir = await tempDir();
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ dependencies: {} }), 'utf8');
+
+    const result = initCommand(undefined, {}, dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/No supported framework dependency detected/);
+  });
+
+  it('returns code 1 when both frameworks are detected and none is named', async () => {
+    const dir = await tempDir();
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@langchain/langgraph': '^1.0.0', 'open-multi-agent': '^1.0.0' },
+      }),
+      'utf8',
+    );
+
+    const result = initCommand(undefined, {}, dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Multiple supported frameworks detected/);
+  });
+
+  it('refuses to overwrite an existing scaffold file without --force', async () => {
+    const dir = await tempDir();
+    const first = initCommand('oma', {}, dir);
+    expect(first.code).toBe(0);
+
+    const second = initCommand('oma', {}, dir);
+    expect(second.code).toBe(1);
+    expect(second.stderr).toMatch(/already exists/);
+  });
+
+  it('overwrites an existing scaffold file when --force is passed', async () => {
+    const dir = await tempDir();
+    initCommand('oma', {}, dir);
+
+    const result = initCommand('oma', { force: true }, dir);
+    expect(result.code).toBe(0);
+  });
+
+  it('runs through runCommand as "init"', async () => {
+    const dir = await tempDir();
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const result = await runCommand(['init', 'oma']);
+      expect(result.code).toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 });

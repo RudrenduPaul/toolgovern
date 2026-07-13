@@ -203,9 +203,18 @@ through, and if you find one, extend the corpus yourself.
 
 ## Framework integration
 
-`integrations/oma/` is a generic, documented adapter for wrapping a multi-agent framework's
-tool-executor call site. It is not a submitted or merged integration against any specific upstream
-project -- it's a working starting point to adapt, not a claim that any framework ships this today.
+Two published integration packages, plus a CLI command (`toolgovern-cli init`, see below) that
+scaffolds either one directly into your project.
+
+### `toolgovern-integration-oma` -- open-multi-agent-style frameworks
+
+A generic, documented adapter for wrapping a multi-agent framework's tool-executor call site. It
+is not a submitted or merged integration against any specific upstream project -- it's a working
+starting point to adapt, not a claim that any framework ships this today.
+
+```bash
+npm install toolgovern-integration-oma toolgovern
+```
 
 Two shapes, matching the two real patterns frameworks actually use. Start with the first one:
 
@@ -231,6 +240,39 @@ const executor = governedExecutor(baseExecutor, policy);
 // wherever your framework currently calls baseExecutor.runTool(name, args) directly,
 // call executor.runTool(name, args) instead
 ```
+
+### `toolgovern-integration-langgraph` -- LangGraph.js
+
+LangGraph.js's `ToolNode` has no `wrap_tool_call` hook -- that only exists in the separately
+maintained Python `langgraph` package. The working Node-only integration point is one level up, at
+tool-definition time: wrap each tool with `governTool()`, then re-wrap it with LangChain's own
+`tool()` factory before it goes into `new ToolNode([...])`.
+
+```bash
+npm install toolgovern-integration-langgraph @langchain/core @langchain/langgraph toolgovern
+```
+
+```ts
+import { ToolNode } from '@langchain/langgraph/prebuilt';
+import { governedLangGraphTools } from 'toolgovern-integration-langgraph';
+import { loadPolicy } from 'toolgovern';
+
+const policy = loadPolicy('./toolgovern.policy.yml');
+
+const toolNode = new ToolNode(
+  governedLangGraphTools(myLangChainTools, {
+    ...policy,
+    agentId: 'research-sub',
+    sessionId: 'demo-session',
+  }),
+);
+// wire toolNode into your StateGraph exactly as you would with the raw tools array --
+// every call now flows through toolgovern's classifier first.
+```
+
+This is new capability for LangGraph.js users going forward -- it does not retroactively resolve
+any previously reported LangGraph issue, since every LangGraph issue this project has validated
+was filed against the Python `langchain-ai/langgraph` repository, not `langgraphjs`.
 
 ## CLI
 
