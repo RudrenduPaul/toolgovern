@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 /**
- * toolgovern-cli -- validate policy files and audit local gate traces without needing the
- * hosted dashboard.
+ * toolgovern-cli -- validate policy files, audit local gate traces, and scaffold framework
+ * integration boilerplate, without needing the hosted dashboard.
  *
  *   toolgovern-cli validate ./toolgovern.policy.yml
  *   toolgovern-cli audit ./toolgovern-trace.jsonl --since 24h --decision deny
+ *   toolgovern-cli init langgraph
  *
  * Every command function below returns a `CliResult` (exit code + stdout/stderr text) instead of
  * writing to `process.stdout`/`process.stderr` directly, so the command logic is testable in
  * isolation -- `main()` is the only place that touches the real process streams.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import {
@@ -60,10 +62,15 @@ export const USAGE = [
   'Usage:',
   '  toolgovern-cli validate <policy-file>',
   '  toolgovern-cli audit <trace-file> [--since <window>] [--decision <allow|deny|require-approval>] [--agent <id>] [--rule <ruleId>] [--verify-chain] [--key-file <path>]',
+  '  toolgovern-cli init [oma|langgraph] [--policy <path>] [--out <path>] [--force]',
   '',
   '  --key-file  Path to the secret key file used to verify hmac-sha256-signed trace entries.',
   '              Only needed if the trace was written with a TraceWriter secretKey. Entries',
   '              signed with the default unkeyed sha256 scheme verify without it.',
+  '',
+  '  init        Scaffolds a working integration file wiring toolgovern into the detected (or',
+  '              named) framework. Detects open-multi-agent/node_runner (-> oma) and',
+  "              @langchain/langgraph (-> langgraph) in the current directory's package.json.",
   '',
 ].join('\n');
 
@@ -175,6 +182,175 @@ export async function auditCommand(
   return { code: 0, stdout, stderr: '' };
 }
 
+export type ScaffoldFramework = 'oma' | 'langgraph';
+
+/** Dependency names in a project's package.json that indicate the given framework is in use.
+ *  `node_runner` is open-multi-agent's own runtime package name, per this repo's
+ *  `integrations/oma` doc comments; `open-multi-agent` covers a project that depends on the
+ *  framework by its own package name instead. */
+const FRAMEWORK_DEPENDENCY_MARKERS: Record<ScaffoldFramework, readonly string[]> = {
+  oma: ['open-multi-agent', 'node_runner'],
+  langgraph: ['@langchain/langgraph'],
+};
+
+const DEFAULT_SCAFFOLD_PATH: Record<ScaffoldFramework, string> = {
+  oma: 'toolgovern.oma.ts',
+  langgraph: 'toolgovern.langgraph.ts',
+};
+
+interface PackageJsonShape {
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly devDependencies?: Readonly<Record<string, string>>;
+}
+
+export function detectFrameworks(pkg: PackageJsonShape): ScaffoldFramework[] {
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  const detected: ScaffoldFramework[] = [];
+  for (const framework of Object.keys(FRAMEWORK_DEPENDENCY_MARKERS) as ScaffoldFramework[]) {
+    if (FRAMEWORK_DEPENDENCY_MARKERS[framework].some((marker) => marker in deps)) {
+      detected.push(framework);
+    }
+  }
+  return detected;
+}
+
+function omaScaffold(policyPath: string): string {
+  return `import { governedTool } from 'toolgovern-integration-oma';
+import { loadPolicy, type ToolDefinition } from 'toolgovern';
+
+// Load your real toolgovern policy -- see toolgovern.policy.example.yml in the toolgovern repo
+// for the full schema, or replace this with an inline Policy object.
+const policy = loadPolicy('${policyPath}');
+
+/**
+ * Wraps one of your framework's tools ({ name, execute(args) }) so every call is evaluated by
+ * toolgovern's classifier before it reaches your real implementation. Register the *governed*
+ * tool with your framework instead of the raw one, e.g.:
+ *
+ *   registry.register(governTool(myRawTool));
+ */
+export function governTool<Args extends Record<string, unknown>, Result>(
+  tool: ToolDefinition<Args, Result>,
+): ToolDefinition<Args, Result> {
+  return governedTool(tool, policy);
+}
+`;
+}
+
+function langgraphScaffold(policyPath: string): string {
+  return `import { ToolNode } from '@langchain/langgraph/prebuilt';
+import type { StructuredToolInterface } from '@langchain/core/tools';
+import { governedLangGraphTools } from 'toolgovern-integration-langgraph';
+import { loadPolicy } from 'toolgovern';
+
+// Load your real toolgovern policy -- see toolgovern.policy.example.yml in the toolgovern repo
+// for the full schema, or replace this with an inline Policy object.
+const policy = loadPolicy('${policyPath}');
+
+/**
+ * Wraps your LangChain tools array and returns a ToolNode that gates every call through
+ * toolgovern's classifier before it reaches your real tool implementation. Pass this in place
+ * of \`new ToolNode(myTools)\` wherever you build your graph.
+ */
+export function governedToolNode(
+  myTools: readonly StructuredToolInterface[],
+  agentId: string,
+  sessionId: string,
+): ToolNode {
+  return new ToolNode(governedLangGraphTools(myTools, { ...policy, agentId, sessionId }));
+}
+`;
+}
+
+const SCAFFOLD_TEMPLATES: Record<ScaffoldFramework, (policyPath: string) => string> = {
+  oma: omaScaffold,
+  langgraph: langgraphScaffold,
+};
+
+export function initCommand(
+  framework: string | undefined,
+  flags: ParsedFlags['flags'],
+  cwd: string,
+): CliResult {
+  let target: ScaffoldFramework;
+
+  if (framework) {
+    if (framework !== 'oma' && framework !== 'langgraph') {
+      return {
+        code: 2,
+        stdout: '',
+        stderr: `Unknown framework "${framework}". Supported: oma, langgraph.\n${USAGE}`,
+      };
+    }
+    target = framework;
+  } else {
+    let pkg: PackageJsonShape;
+    try {
+      pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as PackageJsonShape;
+    } catch (error) {
+      return {
+        code: 1,
+        stdout: '',
+        stderr: `Could not read package.json in "${cwd}": ${(error as Error).message}\n`,
+      };
+    }
+
+    const detected = detectFrameworks(pkg);
+    if (detected.length === 0) {
+      return {
+        code: 1,
+        stdout: '',
+        stderr:
+          'No supported framework dependency detected in package.json (looked for ' +
+          'open-multi-agent/node_runner, @langchain/langgraph). ' +
+          'Pass one explicitly: toolgovern-cli init <oma|langgraph>\n',
+      };
+    }
+    if (detected.length > 1) {
+      return {
+        code: 1,
+        stdout: '',
+        stderr:
+          `Multiple supported frameworks detected (${detected.join(', ')}). ` +
+          'Pass one explicitly: toolgovern-cli init <framework>\n',
+      };
+    }
+    target = detected[0]!;
+  }
+
+  const policyPath = typeof flags.policy === 'string' ? flags.policy : './toolgovern.policy.yml';
+  const outPath = typeof flags.out === 'string' ? flags.out : DEFAULT_SCAFFOLD_PATH[target];
+  const fullOutPath = resolve(cwd, outPath);
+
+  if (existsSync(fullOutPath) && !flags.force) {
+    return {
+      code: 1,
+      stdout: '',
+      stderr: `"${outPath}" already exists. Pass --force to overwrite.\n`,
+    };
+  }
+
+  const content = SCAFFOLD_TEMPLATES[target](policyPath);
+  try {
+    mkdirSync(dirname(fullOutPath), { recursive: true });
+    writeFileSync(fullOutPath, content, 'utf8');
+  } catch (error) {
+    return {
+      code: 1,
+      stdout: '',
+      stderr: `Failed to write "${outPath}": ${(error as Error).message}\n`,
+    };
+  }
+
+  return {
+    code: 0,
+    stdout:
+      `Scaffolded ${target} integration at ${outPath}.\n` +
+      `Fill in your real tool(s) and confirm the policy path (${policyPath}) before running.\n`,
+    stderr: '',
+  };
+}
+
 export async function runCommand(argv: readonly string[]): Promise<CliResult> {
   const [command, ...rest] = argv;
   const { positional, flags } = parseArgs(rest);
@@ -189,6 +365,10 @@ export async function runCommand(argv: readonly string[]): Promise<CliResult> {
 
   if (command === 'audit') {
     return auditCommand(positional[0], flags);
+  }
+
+  if (command === 'init') {
+    return initCommand(positional[0], flags, process.cwd());
   }
 
   return { code: 2, stdout: '', stderr: `Unknown command "${command}".\n${USAGE}` };
