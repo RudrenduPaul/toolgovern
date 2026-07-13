@@ -8,6 +8,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Added
 
+- Root README: dedicated "API reference" section listing every real export from `toolgovern`'s
+  entry point (middleware, scoping, trace, policy, classifier), grepped from source
+- `toolgovern-cli` (0.1.3): added a `keywords` field to `package.json` -- the published npm listing
+  had none, unlike the other three packages in this repo
 - `toolgovern-integration-langgraph` (published, 0.1.0) -- new package routing LangGraph.js tool calls through `governTool()` before they reach `ToolNode`. LangGraph.js's `ToolNode` has no `wrap_tool_call` hook (that only exists in the Python `langgraph` package); the integration point is wrapping each tool with `governTool()` then re-wrapping it with LangChain's own `tool()` factory before it goes into `new ToolNode([...])`
 - `toolgovern-integration-oma` published as an independent package (was previously an unpublished, `private: true` reference adapter in the repo only)
 - `toolgovern-cli init [oma|langgraph]` -- scaffolds a real, working integration file wiring `governTool()`/`governedLangGraphTools()` into a project, auto-detected from `open-multi-agent`/`node_runner` or `@langchain/langgraph` in the invoking project's `package.json` (`toolgovern-cli` bumped to 0.1.2)
@@ -40,6 +44,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Fixed
 
+- Root README: rule count corrected from a stale "31" (comparison table, FAQ) to the actual current
+  34, matching the rule-pack table and benchmarks section which already said 34
+- Root README comparison table: swapped the NVIDIA column from NeMo Guardrails (LLM input/output
+  content filtering -- not a tool-call gate, confirmed not genuinely comparable) to NeMo Relay
+  (actual pre-tool-call interception via hooks), a more honest comparison
 - `governTool()`: a throwing/rejecting `onApprovalRequired` handler now fails closed like a
   timeout, instead of skipping the trace write and leaking a raw, untyped error
 - `toolgovern-cli audit --since <bad-value>` (e.g. an unsupported unit like `1s`) now returns a

@@ -21,6 +21,7 @@ npm install toolgovern
 
 - [The gap this closes](#the-gap-this-closes)
 - [What it does](#what-it-does)
+- [API reference](#api-reference)
 - [How it compares to other agent governance projects](#how-it-compares-to-other-agent-governance-projects)
 - [Benchmarks](#benchmarks-measured-not-targets)
 - [Framework integration](#framework-integration)
@@ -137,19 +138,78 @@ posture out of the box. If you want unrecognized calls to require approval or be
 set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
 "nothing could have gone wrong" -- it means "checked against 34 rules, none fired."
 
+## API reference
+
+Everything below is exported from the `toolgovern` package's real entry point (`src/index.ts`) --
+grepped from source, not aspirational. Full types live in the package itself; this is the surface
+you actually import from.
+
+**Middleware**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `governTool` | `governTool<Args, Result>(tool: ToolDefinition<Args, Result>, options: GovernToolOptions): ToolDefinition<Args, Result>` | Wraps a tool definition so every call is classified before it reaches your real executor. |
+| `ToolGovernDenialError` | `class extends Error` | Thrown when a call is denied. |
+| `InvalidAgentIdError` | `class extends Error` | Thrown when an agent ID doesn't match a registered scope. |
+
+**Scoping**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `ScopeRegistry` | `registerRootAgent(agentId, sessionId, scope): void` | Registers a coordinator's own scope so sub-agent calls can be checked against it. |
+| `computeInheritedScope` | `(coordinatorScope, requestedScope) => ScopeDeclaration` | Pure function: intersects a sub-agent's requested scope with what its coordinator actually has. |
+| `hasZeroCapability` | `(scope) => boolean` | True if a scope grants no access at all. |
+| `normalizeScope`, `isValidScopeDeclaration`, `isValidAgentId`, `EMPTY_SCOPE` | -- | Scope validation and normalization helpers. |
+
+**Trace**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `TraceWriter` | `new TraceWriter(filePath: string, options?: TraceWriterOptions)`, `append(input): Promise<TraceEntry>` | Writes a signed, hash-chained JSONL trace entry per call. |
+| `readTrace` | `(filePath: string) => Promise<TraceEntry[]>` | Reads a trace file back into memory. |
+| `filterTrace` | `(entries, query: TraceQuery) => TraceEntry[]` | Filters trace entries by time window, decision, agent, or rule ID -- what `toolgovern-cli audit` runs under the hood. |
+| `verifyChain` | `(entries, options?) => ChainVerificationResult` | Recomputes signatures and confirms `prior_trace_id` links are intact. |
+| `parseSince` | `(since: string, now?: Date) => Date` | Parses a `--since` window string (e.g. `24h`) into a `Date`. |
+| `computeEntryContentHash`, `computeEntrySignature` | -- | Low-level hashing/signing primitives behind `TraceWriter`. |
+
+**Policy**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `loadPolicy` | `(filePath: string) => Policy` | Loads and validates a YAML policy file, throwing `PolicyValidationError` on a bad file. |
+| `validatePolicy` | `(raw: unknown) => PolicyValidationResult` | Validates a policy object without loading from disk. |
+| `asPolicy` | `(raw: unknown) => Policy` | Type-narrows a validated raw object to `Policy`. |
+
+**Classifier**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `classify` | `(ctx: RuleContext, options?: ClassifyOptions) => ClassifierResult` | Runs the 34-rule classifier directly against a call context. |
+| `ruleRegistry` | `Rule[]` | The full list of registered rules -- what `governTool()` checks every call against. |
+
+**Other**
+| Export | Signature | What it does |
+| --- | --- | --- |
+| `IdempotencyCache<Result>` | `constructor(options?: IdempotencyOptions)` | Dedupes retried calls with identical arguments within a window. |
+
+Types: `Decision`, `AgentIdSource`, `RuleCategory`, `ScopeDeclaration`, `Policy`, `RuleOverrides`,
+`RuleContext`, `RuleMatch`, `Rule`, `ClassifierResult`, `TraceEntry`, `TraceEntryInput`,
+`AgentScopeRecord`, `GovernToolOptions`, `GateDecisionInfo`, `ApprovalHandler`, `ApprovalOutcome`,
+`ToolDefinition`.
+
+Integration packages export a narrower, framework-specific surface on top of the above:
+`toolgovern-integration-oma` exports `governedTool(tool, options)` and
+`governedExecutor(baseExecutor, options)`; `toolgovern-integration-langgraph` exports
+`governedLangGraphTool(langchainTool, options)` and `governedLangGraphTools(langchainTools, options)`.
+
 ## How it compares to other agent governance projects
 
 This isn't an empty field. Read the table honestly before deciding what you need.
 
-|                            | **toolgovern**                                                      | [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit)      | [NVIDIA NeMo Guardrails](https://github.com/NVIDIA-NeMo/Guardrails)   | [LangGraph human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) |
+|                            | **toolgovern**                                                      | [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit)      | [NVIDIA NeMo Relay](https://github.com/NVIDIA/NeMo-Relay)   | [LangGraph human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) |
 | -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| What it actually gates     | Tool calls, pre-execution, against a built-in rule set              | Tool calls, messages, and delegation, pre-execution, against policy you author (YAML/OPA/Cedar)  | LLM input/dialog/retrieval/output, not individual tool-call arguments | A single tool call, paused for a human decision -- no automated risk classification              |
-| Rules out of the box       | 31, across 5 categories, zero config                                | None shipped -- you write the policy                                                             | Guardrail templates, not a tool-call risk taxonomy                    | None -- you decide per call                                                                      |
-| Language / footprint       | TypeScript, one library, wraps a function                           | Python-first, 5 language SDKs, policy engine + identity system + execution sandbox + audit stack | Python                                                                | Python (a separate `langgraphjs` exists but tracks independently)                                |
-| Per-agent scope narrowing  | Yes -- a sub-agent can never exceed its coordinator's granted scope | Yes -- documented delegation-chain narrowing and a 4-ring privilege model                        | No                                                                    | No                                                                                               |
-| Tamper-evident audit trail | Yes -- signed, hash-chained local JSONL                             | Yes -- Merkle-audit-backed, part of a formal spec with 157 conformance tests                     | No (has tracing/telemetry, not cryptographic tamper-evidence)         | No                                                                                               |
-| Hosted component required  | No, never                                                           | No -- self-hosted by design, Azure integration is optional                                       | No                                                                    | No for the OSS library; LangGraph's own hosted server runtime is separately licensed             |
-| Stars (checked 2026-07-12) | 0, pre-launch                                                       | 4.8k                                                                                             | 6.7k                                                                  | 37.1k (core `langgraph` repo)                                                                    |
+| What it actually gates     | Tool calls, pre-execution, against a built-in rule set              | Tool calls, messages, and delegation, pre-execution, against policy you author (YAML/OPA/Cedar)  | Tool and LLM calls via pre-tool hooks -- coverage depends on the host agent, documented for Claude Code/Codex, partial elsewhere | A single tool call, paused for a human decision -- no automated risk classification              |
+| Rules out of the box       | 34, across 5 categories, zero config                                | None shipped -- you write the policy                                                             | None shipped -- pre-tool hooks call your own logic, not a built-in classifier | None -- you decide per call                                                                      |
+| Language / footprint       | TypeScript, one library, wraps a function                           | Python-first, 5 language SDKs, policy engine + identity system + execution sandbox + audit stack | Rust core, with Python/Node.js/Rust bindings (experimental Go)       | Python (a separate `langgraphjs` exists but tracks independently)                                |
+| Per-agent scope narrowing  | Yes -- a sub-agent can never exceed its coordinator's granted scope | Yes -- documented delegation-chain narrowing and a 4-ring privilege model                        | Not publicly documented                                              | No                                                                                               |
+| Tamper-evident audit trail | Yes -- signed, hash-chained local JSONL                             | Yes -- Merkle-audit-backed, part of a formal spec with 157 conformance tests                     | No -- raw JSONL trajectory export (ATOF/ATIF format), not signed     | No                                                                                               |
+| Hosted component required  | No, never                                                           | No -- self-hosted by design, Azure integration is optional                                       | No -- local CLI gateway                                              | No for the OSS library; LangGraph's own hosted server runtime is separately licensed             |
+| Stars (checked 2026-07-13) | 0, pre-launch                                                       | 4.8k                                                                                             | 74 (new, created 2026-03-31)                                          | 37.1k (core `langgraph` repo)                                                                    |
 | License                    | Apache 2.0                                                          | MIT                                                                                              | Apache 2.0                                                            | MIT                                                                                              |
 
 Two things worth being direct about, because they'd get caught fast otherwise:
@@ -161,11 +221,12 @@ Anyone comparing the two on "does it have scoping" or "does it have a signed tra
 they're tied. That's not a reason to skip AGT; if you need a full governance platform with identity,
 sandboxing, and compliance mapping behind it, it's a real, well-built option.
 
-NeMo Guardrails and LangGraph's human-in-the-loop middleware are doing a genuinely different job,
-not a weaker version of the same one -- NeMo governs what goes into and out of the model's own
-input/output, and LangGraph's HITL is a manual pause-and-ask primitive with no automated
-classification underneath it. Listing them here is about scope, not a claim that toolgovern beats
-them at their own task.
+NeMo Relay and LangGraph's human-in-the-loop middleware are doing a genuinely different job, not a
+weaker version of the same one -- Relay gives you a pre-tool hook to call your own logic from
+(useful if you're already building on it, but it ships no rule classifier of its own, and its
+documented hook coverage is strongest for Claude Code/Codex, partial elsewhere), and LangGraph's
+HITL is a manual pause-and-ask primitive with no automated classification underneath it. Listing
+them here is about scope, not a claim that toolgovern beats them at their own task.
 
 Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 34 rules
 that already exist -- no policy authoring, no identity system to stand up, no separate services to
@@ -345,7 +406,7 @@ source), and how to change the scoping or trace schema without breaking their gu
 ## FAQ
 
 **Does toolgovern make a tool call safe?**
-No. A gate decision of `allow` means the call was checked against the current 31-rule set and
+No. A gate decision of `allow` means the call was checked against the current 34-rule set and
 nothing fired -- it's a check against a finite, disclosed rule set, not a safety guarantee. See
 `docs/security-model.md` for exactly what the classifier does and doesn't catch.
 
