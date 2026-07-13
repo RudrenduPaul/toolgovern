@@ -341,6 +341,7 @@ was filed against the Python `langchain-ai/langgraph` repository, not `langgraph
 npx toolgovern-cli validate ./toolgovern.policy.yml
 npx toolgovern-cli audit ./toolgovern-trace.jsonl --since 24h --decision deny
 npx toolgovern-cli audit ./toolgovern-trace.jsonl --verify-chain
+npx toolgovern-cli init langgraph
 ```
 
 Real output from this repo's own example policy and the trace file generated above:
@@ -353,13 +354,20 @@ $ toolgovern-cli audit ./toolgovern-trace.jsonl --decision deny
 DENY             research-sub -> bash  [TG01-pipe-to-shell, TG03-network-disabled, TG03-known-paste-relay]  2026-07-12T01:39:22.581Z
 
 1 of 2 trace entries matched.
+
+$ toolgovern-cli init langgraph
+Scaffolded langgraph integration at toolgovern.langgraph.ts.
+Fill in your real tool(s) and confirm the policy path (./toolgovern.policy.yml) before running.
 ```
 
 `validate` checks a policy file's structure and rule references before it loads at runtime.
 `audit` reads the local trace and filters by time window, decision, agent identity, or fired rule
 ID. `--verify-chain` recomputes every entry's signature and confirms `prior_trace_id` links are
-intact. See `docs/trace-format.md` and `docs/security-model.md` for exactly what that does and
-doesn't prove, including the optional `--key-file` flag for HMAC-keyed traces.
+intact. `init [oma|langgraph]` scaffolds a working integration file wiring toolgovern into the
+named (or auto-detected) framework, writing it to the current directory unless `--out` says
+otherwise; `--force` overwrites an existing scaffold file. See `docs/trace-format.md` and
+`docs/security-model.md` for exactly what that does and doesn't prove, including the optional
+`--key-file` flag for HMAC-keyed traces.
 
 ## Self-hosting
 

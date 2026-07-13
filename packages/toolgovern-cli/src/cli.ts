@@ -12,7 +12,7 @@
  * isolation -- `main()` is the only place that touches the real process streams.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -382,7 +382,8 @@ async function main(): Promise<void> {
 }
 
 const isMainModule =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 if (isMainModule) {
   main().catch((error: unknown) => {
     process.stderr.write(`Unexpected error: ${(error as Error).stack ?? String(error)}\n`);
