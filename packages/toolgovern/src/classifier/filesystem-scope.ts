@@ -6,13 +6,14 @@
  * small set of sensitive absolute system directories regardless of scope.
  */
 
-import type { Rule, RuleMatch } from '../types.js';
+import type { Rule, RuleContext, RuleMatch } from '../types.js';
 import {
   containsPathTraversal,
   extractOperation,
   extractPath,
   isCredentialGranted,
   isPathWithin,
+  normalizeForMatch,
 } from './util.js';
 
 const category = 'TG02' as const;
@@ -22,6 +23,16 @@ const DELETE_OPS = new Set(['delete', 'remove', 'unlink', 'rm', 'rmdir']);
 const CHMOD_OPS = new Set(['chmod', 'chown', 'setpermissions', 'set_permissions']);
 const READ_OPS = new Set(['read', 'get', 'load', 'fetch', 'cat', 'open']);
 const SENSITIVE_SYSTEM_PREFIXES = ['/etc', '/usr', '/bin', '/sbin', '/system', '/private/etc'];
+
+/** Extracts a call's path argument and runs it through the same obfuscation-normalization pass
+ *  (invisible Unicode, `$IFS`-as-space, empty-quote splitting) TG01/TG03/TG04 already apply to
+ *  their text before matching -- every rule in this file compares against this, not the raw
+ *  `extractPath()` value, so a path cannot dodge a scope or sensitive-prefix check by smuggling
+ *  in a formatting character a literal/prefix comparison wouldn't see. */
+function extractNormalizedPath(args: RuleContext['args']): string | undefined {
+  const raw = extractPath(args);
+  return raw ? normalizeForMatch(raw) : undefined;
+}
 
 function isWithinScope(path: string, filesystem: readonly string[]): boolean {
   if (filesystem.length === 0) return false;
@@ -42,7 +53,7 @@ const writeOutsideScope: Rule = {
   category,
   description: 'A write/create targets a path outside the declared filesystem scope.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     const op =
       extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('write') ? 'write' : '');
@@ -62,7 +73,7 @@ const deleteOutsideScope: Rule = {
   category,
   description: 'A delete targets a path outside the declared filesystem scope.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     const op =
       extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('delete') ? 'delete' : '');
@@ -82,7 +93,7 @@ const chmodOutsideScope: Rule = {
   category,
   description: 'A permission change targets a path outside the declared filesystem scope.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     const op = extractOperation(ctx.args);
     if (!op || !CHMOD_OPS.has(op)) return null;
@@ -110,7 +121,7 @@ const readOutsideScope: Rule = {
     'is not flagged here -- that grant is the authorization for that specific resource, and ' +
     'requiring approval on top of it would be redundant friction, not defense in depth.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     const op =
       extractOperation(ctx.args) ?? (ctx.tool.toLowerCase().includes('read') ? 'read' : '');
@@ -131,7 +142,7 @@ const pathTraversal: Rule = {
   category,
   description: 'A path uses ".." segments that could escape a scoped prefix.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     if (!containsPathTraversal(path)) return null;
     return match(this, 'deny', `Path "${path}" contains traversal segments ("..").`, path);
@@ -145,7 +156,7 @@ const symlinkEscape: Rule = {
   evaluate(ctx) {
     const op = extractOperation(ctx.args) ?? '';
     if (!/symlink|link/.test(op)) return null;
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     if (isWithinScope(path, ctx.scope.filesystem)) return null;
     return match(
@@ -162,12 +173,14 @@ const sensitiveSystemPath: Rule = {
   category,
   description: 'A write/delete targets a sensitive absolute system directory.',
   evaluate(ctx) {
-    const path = extractPath(ctx.args);
+    const path = extractNormalizedPath(ctx.args);
     if (!path) return null;
     const op = extractOperation(ctx.args) ?? '';
     if (!WRITE_OPS.has(op) && !DELETE_OPS.has(op) && !CHMOD_OPS.has(op)) return null;
+    // Case-insensitive, same as the original raw-prefix check this replaces -- every entry in
+    // SENSITIVE_SYSTEM_PREFIXES is already lowercase.
     const lower = path.toLowerCase();
-    const hit = SENSITIVE_SYSTEM_PREFIXES.find((prefix) => lower.startsWith(prefix));
+    const hit = SENSITIVE_SYSTEM_PREFIXES.find((prefix) => isPathWithin(lower, prefix));
     if (!hit) return null;
     return match(
       this,

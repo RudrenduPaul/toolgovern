@@ -274,6 +274,36 @@ describe('TG02 filesystem scope escalation', () => {
       expect(
         fires('TG02-sensitive-system-path', { path: './workspace/file', operation: 'write' }),
       ).toBe(false));
+
+    it('still fires on a double-leading-slash path targeting /etc, even when the agent is scoped to /etc itself (2026-07-13 fix -- a raw startsWith() previously missed "//etc/passwd" since it does not literally start with "/etc")', () =>
+      expect(
+        fires('TG02-sensitive-system-path', { path: '//etc/passwd', operation: 'write' }, ['/etc']),
+      ).toBe(true));
+
+    it('still fires on a double-leading-slash path with no filesystem scope declared at all', () =>
+      expect(
+        fires('TG02-sensitive-system-path', { path: '//etc/shadow', operation: 'delete' }),
+      ).toBe(true));
+  });
+
+  describe('TG02 argument obfuscation resistance (2026-07-13: extended to every rule in this file, not just sensitive-system-path)', () => {
+    it('TG02-sensitive-system-path still fires when a zero-width space is spliced into the path', () =>
+      expect(
+        fires('TG02-sensitive-system-path', { path: '/e​tc/passwd', operation: 'write' }, ['/etc']),
+      ).toBe(true));
+
+    it('TG02-write-outside-scope still fires on a path with an embedded zero-width space', () =>
+      expect(
+        fires('TG02-write-outside-scope', { path: '/tmp/ex​port.csv', operation: 'write' }),
+      ).toBe(true));
+
+    it('TG02-sensitive-system-path does not false-fire on a legitimately in-scope workspace path containing formatting characters', () =>
+      expect(
+        fires('TG02-sensitive-system-path', {
+          path: './work​space/file',
+          operation: 'write',
+        }),
+      ).toBe(false));
   });
 
   it('every rule has a unique id and belongs to TG02', () => {
