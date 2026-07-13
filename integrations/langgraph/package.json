@@ -1,8 +1,12 @@
 {
   "name": "toolgovern-integration-langgraph",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Route LangGraph.js tool calls through toolgovern's governTool() gate before they reach ToolNode -- wraps each tool with the classifier, then re-wraps it with LangChain's own tool() factory so it slots into new ToolNode([...]) unchanged.",
+  "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
+  "bugs": {
+    "url": "https://github.com/RudrenduPaul/toolgovern/issues"
+  },
   "keywords": [
     "langgraph",
     "langgraphjs",
@@ -40,7 +44,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "toolgovern": "0.1.1"
+    "toolgovern": "0.1.2"
   },
   "peerDependencies": {
     "@langchain/core": "^1.1.48",

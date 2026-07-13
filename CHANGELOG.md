@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+### Fixed
+
+- `toolgovern-cli`'s `isMainModule` check compared `import.meta.url` directly against
+  `pathToFileURL(process.argv[1])`, but npm installs a package's `bin` entry as a symlink --
+  Node resolves `import.meta.url` to the symlink's realpath while leaving `process.argv[1]` as
+  the symlink path itself, so the two never matched and `main()` silently never ran. Every real
+  `npm install toolgovern-cli` (or `npx toolgovern-cli`) exited 0 with zero output, no usage
+  text, no error. Fixed by resolving `process.argv[1]` through `realpathSync()` before the
+  comparison. Verified against the exact real-world symlinked-bin path (packed the tarball,
+  installed it fresh, ran the installed `node_modules/.bin/toolgovern-cli` directly), not just
+  a source-level `node src/cli.ts` invocation, which had been masking this bug.
+- `homepage` and `bugs` fields added to all 4 published package.json files (`toolgovern`,
+  `toolgovern-cli`, `toolgovern-integration-langgraph`, `toolgovern-integration-oma`) -- none
+  had them, so none of the 4 npm registry pages linked back to the repo or its issue tracker.
+- Root README: two leftover "31-rule" mentions (comparison table, FAQ) corrected to the current,
+  verified 34-rule count; GitHub About description corrected to match.
+- Root README `## CLI` section: added a real `toolgovern-cli init langgraph` example with actual
+  captured output -- the Framework Integration section referenced this command, but it had no
+  usage example of its own.
+
 ### Added
 
 - Root README: dedicated "API reference" section listing every real export from `toolgovern`'s
