@@ -4,9 +4,22 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { timingSafeEqual } from 'node:crypto';
 import type { BinaryLike } from 'node:crypto';
 import type { Decision, TraceEntry } from '../types.js';
 import { computeEntrySignature } from './trace-writer.js';
+
+/** Constant-time comparison of two signature strings. `timingSafeEqual` requires equal-length
+ *  buffers and throws on a mismatch, so a length difference is checked first and short-circuits
+ *  to `false` -- this leaks nothing an attacker doesn't already know, since both the scheme
+ *  prefix and the hex-encoded hash length are fixed and public (`sha256:` + 64 hex chars,
+ *  `hmac-sha256:` + 64 hex chars), not a function of the secret being compared. */
+function signaturesMatch(actual: string, expected: string): boolean {
+  const actualBuf = Buffer.from(actual, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (actualBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(actualBuf, expectedBuf);
+}
 
 export interface TraceQuery {
   /** A relative time window, e.g. `'24h'`, `'7d'`, `'30m'`, or an absolute ISO 8601 timestamp. */
@@ -116,7 +129,7 @@ export function verifyChain(
         entry,
         scheme === 'hmac-sha256' ? options.secretKey : undefined,
       );
-      if (entry.signature !== expected) {
+      if (!signaturesMatch(entry.signature, expected)) {
         issues.push({ traceId: entry.trace_id, reason: 'Signature does not match entry content.' });
       }
     } else {
