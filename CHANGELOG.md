@@ -8,6 +8,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Added
 
+- `toolgovern-integration-langgraph` (published, 0.1.0) -- new package routing LangGraph.js tool calls through `governTool()` before they reach `ToolNode`. LangGraph.js's `ToolNode` has no `wrap_tool_call` hook (that only exists in the Python `langgraph` package); the integration point is wrapping each tool with `governTool()` then re-wrapping it with LangChain's own `tool()` factory before it goes into `new ToolNode([...])`
+- `toolgovern-integration-oma` published as an independent package (was previously an unpublished, `private: true` reference adapter in the repo only)
+- `toolgovern-cli init [oma|langgraph]` -- scaffolds a real, working integration file wiring `governTool()`/`governedLangGraphTools()` into a project, auto-detected from `open-multi-agent`/`node_runner` or `@langchain/langgraph` in the invoking project's `package.json` (`toolgovern-cli` bumped to 0.1.2)
 - Optional HMAC-keyed trace signing: `TraceWriterOptions.secretKey`, `verifyChain({ secretKey })`,
   and `toolgovern-cli audit --verify-chain --key-file <path>` -- makes the trace tamper-evident
   against an attacker who does not hold the key, not just against a naive hand-edit
