@@ -1,7 +1,7 @@
 {
   "name": "toolgovern-cli",
-  "version": "0.1.1",
-  "description": "CLI for toolgovern -- validate policy files and audit local gate traces.",
+  "version": "0.1.2",
+  "description": "CLI for toolgovern -- validate policy files, audit local gate traces, and scaffold framework integration boilerplate.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/cli.js",
