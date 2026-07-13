@@ -1,8 +1,12 @@
 {
   "name": "toolgovern-integration-oma",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Adapter shapes (per-tool governedTool and dispatcher-style governedExecutor) for wiring toolgovern into an open-multi-agent-style tool-executor call site.",
+  "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
+  "bugs": {
+    "url": "https://github.com/RudrenduPaul/toolgovern/issues"
+  },
   "keywords": [
     "open-multi-agent",
     "ai-agents",
@@ -38,7 +42,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "toolgovern": "0.1.1"
+    "toolgovern": "0.1.2"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

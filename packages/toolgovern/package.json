@@ -1,7 +1,11 @@
 {
   "name": "toolgovern",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Runtime governance middleware for AI agent tool calls -- gate shell, filesystem, network, and credential access before a tool executes.",
+  "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
+  "bugs": {
+    "url": "https://github.com/RudrenduPaul/toolgovern/issues"
+  },
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
