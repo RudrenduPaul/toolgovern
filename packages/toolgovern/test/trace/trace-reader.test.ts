@@ -188,6 +188,27 @@ describe('verifyChain', () => {
     expect(result.issues[0]?.reason).toMatch(/Signature does not match/);
   });
 
+  it('rejects (does not throw on) a signature with a different length than expected -- 2026-07-13: signature comparison switched to crypto.timingSafeEqual, which throws on unequal-length buffers if not guarded', async () => {
+    const filePath = await makeTempTraceFile();
+    const writer = new TraceWriter(filePath);
+    await writer.append({
+      sessionId: 's1',
+      agentId: 'a',
+      tool: 'bash',
+      args: { command: 'ls' },
+      decision: 'allow',
+      ruleFired: [],
+      declaredScope: emptyScope,
+    });
+    const [entry] = await readTrace(filePath);
+    const truncated: TraceEntry = { ...entry!, signature: entry!.signature.slice(0, -4) };
+
+    expect(() => verifyChain([truncated])).not.toThrow();
+    const result = verifyChain([truncated]);
+    expect(result.valid).toBe(false);
+    expect(result.issues[0]?.reason).toMatch(/Signature does not match/);
+  });
+
   it(
     'documents the residual limitation of the unkeyed sha256 scheme: an attacker who edits an ' +
       'entry AND recomputes its signature is NOT caught, because the hash is reproducible by ' +
