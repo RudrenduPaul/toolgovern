@@ -1,7 +1,7 @@
 {
   "name": "toolgovern-cli",
-  "version": "0.1.4",
-  "description": "CLI for toolgovern -- validate policy files, audit local gate traces, and scaffold framework integration boilerplate.",
+  "version": "0.1.5",
+  "description": "CLI for toolgovern -- validate policy files, audit local gate traces, and scaffold framework integration boilerplate, with a --json output mode for programmatic/agent use.",
   "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
   "bugs": {
     "url": "https://github.com/RudrenduPaul/toolgovern/issues"

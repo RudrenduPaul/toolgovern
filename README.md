@@ -30,6 +30,7 @@ npm install toolgovern
 - [What's OSS and what isn't](#whats-oss-and-what-isnt)
 - [Security](#security)
 - [Development](#development)
+- [Contributing](#contributing)
 - [FAQ](#faq)
 - [Community](#community)
 - [License](#license)
@@ -215,7 +216,7 @@ This isn't an empty field. Read the table honestly before deciding what you need
 | Per-agent scope narrowing  | Yes -- a sub-agent can never exceed its coordinator's granted scope | Yes -- documented delegation-chain narrowing and a 4-ring privilege model                        | Not publicly documented                                                                                                          | No                                                                                               |
 | Tamper-evident audit trail | Yes -- signed, hash-chained local JSONL                             | Yes -- Merkle-audit-backed, part of a formal spec with 157 conformance tests                     | No -- raw JSONL trajectory export (ATOF/ATIF format), not signed                                                                 | No                                                                                               |
 | Hosted component required  | No, never                                                           | No -- self-hosted by design, Azure integration is optional                                       | No -- local CLI gateway                                                                                                          | No for the OSS library; LangGraph's own hosted server runtime is separately licensed             |
-| Stars (checked 2026-07-13) | 0, pre-launch                                                       | 4.8k                                                                                             | 74 (new, created 2026-03-31)                                                                                                     | 37.1k (core `langgraph` repo)                                                                    |
+| Stars (checked 2026-07-14) | 0, pre-launch                                                       | 4.9k                                                                                             | 76 (new, created 2026-03-31)                                                                                                     | 37.3k (core `langgraph` repo)                                                                    |
 | License                    | Apache 2.0                                                          | MIT                                                                                              | Apache 2.0                                                                                                                       | MIT                                                                                              |
 
 Two things worth being direct about, because they'd get caught fast otherwise:
@@ -375,6 +376,46 @@ otherwise; `--force` overwrites an existing scaffold file. See `docs/trace-forma
 `docs/security-model.md` for exactly what that does and doesn't prove, including the optional
 `--key-file` flag for HMAC-keyed traces.
 
+### Command reference
+
+| Command                  | Flags                                                                                                                                                | Exit codes                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `validate <policy-file>` | `--json`                                                                                                                                             | `0` valid, `1` invalid/unreadable, `2` missing arg    |
+| `audit <trace-file>`     | `--since <window>`, `--decision <allow\|deny\|require-approval>`, `--agent <id>`, `--rule <ruleId>`, `--verify-chain`, `--key-file <path>`, `--json` | `0` success, `1` chain/read failure, `2` bad flag/arg |
+| `init [oma\|langgraph]`  | `--policy <path>`, `--out <path>`, `--force`, `--json`                                                                                               | `0` scaffolded, `1` write/detect failure, `2` bad arg |
+
+Exit codes are structured on purpose: `0` only ever means the command did what it says, `1` is a
+runtime failure (bad file, failed chain, write error), `2` is a usage error (missing/invalid
+argument). Every non-zero exit prints its error to stderr in text mode, or as `error.message` in
+`--json` mode, so a caller always has something concrete to act on.
+
+### `--json` -- agent-parseable output
+
+Every command above also takes `--json`, which prints one JSON object to stdout (nothing to
+stderr, in success or failure) instead of the formatted text shown above:
+
+```
+$ toolgovern-cli audit ./toolgovern-trace.jsonl --decision deny --json
+{
+  "ok": true,
+  "command": "audit",
+  "data": {
+    "file": "./toolgovern-trace.jsonl",
+    "query": { "decision": "deny" },
+    "matched": 1,
+    "total": 2,
+    "entries": [ { "trace_id": "tg_2026-07-12_063909", "decision": "deny", "rule_fired": ["TG01-pipe-to-shell", "TG03-network-disabled", "TG03-known-paste-relay"] } ]
+  }
+}
+```
+
+This is what lets another AI agent invoke `toolgovern-cli` programmatically and parse the result
+reliably, the same way a script or CI job would: `ok` and the exit code always agree, `data`
+carries the real objects (full `TraceEntry` rows for `audit`, every field intact), and errors land
+in a single `error.message` field, the one place to check for what went wrong. Full request/response
+shapes and worked examples for all three commands are in
+[`packages/toolgovern-cli/README.md`](packages/toolgovern-cli/README.md#--json----structured-output-for-scripts-and-agents).
+
 ## Self-hosting
 
 Everything in this repo runs entirely on your own machine or infrastructure. No call payload,
@@ -413,9 +454,16 @@ npm run test:coverage
 npm audit --audit-level=high
 ```
 
-See `CONTRIBUTING.md` for the repo layout, what a rule change needs (true-positive and
-true-negative test cases, a reason string specific enough to explain a denial without reading the
-source), and how to change the scoping or trace schema without breaking their guarantees.
+## Contributing
+
+Pull requests are welcome. Every PR runs through the same four CI gates a contributor should run
+locally first: `npm run lint && npm run format`, `npm run typecheck` (strict, zero unexplained
+`@ts-ignore`), `npm run test:coverage` (80% overall, 90%+ on the classifier and scoping modules),
+and `npm audit --audit-level=high`. A PR that fails any of them will not merge. Adding or changing
+a classifier rule needs at least 3 true-positive and 3 true-negative test cases plus a `reason`
+string specific enough to explain a denial without reading the rule's source. Full detail,
+including how to change the scoping-inheritance model or the trace schema without breaking their
+guarantees, is in `CONTRIBUTING.md`. Report a vulnerability per `SECURITY.md`, not a public issue.
 
 ## FAQ
 
@@ -444,6 +492,11 @@ No, and the README says so on purpose. The 34 rules are checked honestly against
 the maintainers wrote (see Benchmarks below) -- that's a claim about the rules doing what they were
 designed to do, not a claim that every real-world risky call gets caught. A technique outside the
 corpus could still get through.
+
+**Can an agent invoke `toolgovern-cli` programmatically and parse the result itself?**
+Yes -- every command (`validate`, `audit`, `init`) takes `--json` and prints a single
+`{ ok, command, data | error }` object to stdout, never split across stdout/stderr, with the exit
+code (`0`/`1`/`2`) always matching `ok`. See [Command reference](#cli) above for the exact shapes.
 
 **Is there a hosted version?**
 No. Everything that exists today is in this repository, Apache 2.0, self-hosted only. See
