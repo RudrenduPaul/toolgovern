@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+### Added
+
+- `toolgovern-cli` (0.1.5): `--json` flag on `validate`, `audit`, and `init` -- emits a single
+  structured `{ ok, command, data | error }` JSON object on stdout instead of human-formatted
+  text, so another program (an AI agent invoking the CLI programmatically, a script piping into
+  `jq`) can parse the result reliably. Exit codes are unchanged (0 success, 1 runtime error, 2
+  usage error) and were already non-zero on failure before this change; `--json` mode never
+  splits output across stdout/stderr -- the full result, success or failure, is always the one
+  JSON object on stdout. `audit --json` includes the full filtered `TraceEntry` objects, not a
+  restated summary.
+
 ### Fixed
 
 - `verifyChain()`'s signature comparison switched from `!==` (a naive string comparison) to
