@@ -295,6 +295,189 @@ describe('runCommand', () => {
   });
 });
 
+describe('--json mode', () => {
+  it('validate --json emits a single parseable JSON object with ok:true on success', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'policy.yml');
+    await writeFile(
+      filePath,
+      ['name: x', 'scope:', '  network: false', '  filesystem: []', '  credentials: []'].join('\n'),
+      'utf8',
+    );
+    const result = validateCommand(filePath, { json: true });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toEqual({
+      ok: true,
+      command: 'validate',
+      data: { file: filePath, valid: true, errors: [] },
+    });
+  });
+
+  it('validate --json emits ok:false with the error list on an invalid policy', () => {
+    const result = validateCommand('/nonexistent/policy.yml', { json: true });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.command).toBe('validate');
+    expect(parsed.error.message).toMatch(/Failed to read\/parse/);
+  });
+
+  it('validate --json reports structural errors in both data.errors and error.details', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'policy.yml');
+    await writeFile(filePath, 'name: broken\n', 'utf8');
+    const result = validateCommand(filePath, { json: true });
+    expect(result.code).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.data.valid).toBe(false);
+    expect(parsed.data.errors.length).toBeGreaterThan(0);
+    expect(parsed.error.details).toEqual(parsed.data.errors);
+  });
+
+  it('validate --json reports a usage error as structured JSON, not text, when no file is given', () => {
+    const result = validateCommand(undefined, { json: true });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toEqual({
+      ok: false,
+      command: 'validate',
+      error: { message: 'validate requires a <policy-file> argument.' },
+    });
+  });
+
+  it('audit --json emits matched/total counts and the full filtered entries as real objects', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'trace.jsonl');
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        trace_id: 't1',
+        timestamp: '2026-07-11T10:00:00.000Z',
+        session_id: 's1',
+        agent_id: 'coordinator',
+        tool: 'bash',
+        arguments_hash: 'sha256:aaa',
+        decision: 'deny',
+        rule_fired: ['TG01-pipe-to-shell'],
+        declared_scope: { network: false, filesystem: [], credentials: [] },
+        signature: 'sha256:bbb',
+        prior_trace_id: null,
+      })}\n`,
+      'utf8',
+    );
+    const result = await auditCommand(filePath, { decision: 'deny', json: true });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.command).toBe('audit');
+    expect(parsed.data.matched).toBe(1);
+    expect(parsed.data.total).toBe(1);
+    expect(parsed.data.entries).toHaveLength(1);
+    expect(parsed.data.entries[0].trace_id).toBe('t1');
+    expect(parsed.data.entries[0].decision).toBe('deny');
+  });
+
+  it('audit --json reports an invalid --decision as a structured, non-zero-exit error', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'trace.jsonl');
+    await writeFile(filePath, '', 'utf8');
+    const result = await auditCommand(filePath, { decision: 'maybe', json: true });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.message).toMatch(/--decision must be one of/);
+  });
+
+  it('audit --json reports a chain verification failure with the issues list intact', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'trace.jsonl');
+    await writeFile(
+      filePath,
+      `${JSON.stringify({
+        trace_id: 't1',
+        timestamp: '2026-07-11T10:00:00.000Z',
+        session_id: 's1',
+        agent_id: 'coordinator',
+        tool: 'bash',
+        arguments_hash: 'sha256:aaa',
+        decision: 'allow',
+        rule_fired: [],
+        declared_scope: { network: false, filesystem: [], credentials: [] },
+        signature: 'sha256:bbb',
+        prior_trace_id: null,
+      })}\n`,
+      'utf8',
+    );
+    const result = await auditCommand(filePath, { 'verify-chain': true, json: true });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.data.chain.verified).toBe(false);
+    expect(parsed.error.details.length).toBeGreaterThan(0);
+  });
+
+  it('init --json emits the scaffolded framework, outPath, and policyPath on success', async () => {
+    const dir = await tempDir();
+    const result = initCommand('langgraph', { json: true }, dir);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toEqual({
+      ok: true,
+      command: 'init',
+      data: {
+        framework: 'langgraph',
+        outPath: 'toolgovern.langgraph.ts',
+        policyPath: './toolgovern.policy.yml',
+      },
+    });
+    expect(existsSync(join(dir, 'toolgovern.langgraph.ts'))).toBe(true);
+  });
+
+  it('init --json reports an unknown framework as a structured error', () => {
+    const result = initCommand('crewai', { json: true }, '/tmp');
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.message).toMatch(/Unknown framework/);
+  });
+
+  it('runCommand reports an unknown command as structured JSON when --json is passed', async () => {
+    const result = await runCommand(['bogus', '--json']);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toEqual({
+      ok: false,
+      command: 'bogus',
+      error: { message: 'Unknown command "bogus".' },
+    });
+  });
+
+  it('dispatches --json through runCommand end to end for validate', async () => {
+    const dir = await tempDir();
+    const filePath = join(dir, 'policy.yml');
+    await writeFile(
+      filePath,
+      ['name: x', 'scope:', '  network: false', '  filesystem: []', '  credentials: []'].join('\n'),
+      'utf8',
+    );
+    const result = await runCommand(['validate', filePath, '--json']);
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+  });
+});
+
 describe('detectFrameworks', () => {
   it('detects langgraph from a dependency', () => {
     const detected = detectFrameworks({ dependencies: { '@langchain/langgraph': '^1.0.0' } });

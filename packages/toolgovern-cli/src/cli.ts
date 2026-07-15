@@ -36,6 +36,29 @@ export interface ParsedFlags {
   readonly flags: Readonly<Record<string, string | boolean>>;
 }
 
+/**
+ * Structured output envelope for `--json`. Every command that supports `--json` emits exactly one
+ * of these as a single JSON object on stdout (never split across stdout/stderr, never mixed with
+ * human-readable text) so another program -- an AI agent invoking this CLI, a script piping into
+ * `jq` -- can parse the result without scraping formatted text. `ok` mirrors the exit code
+ * (`code === 0`); `data` is present on success (and, for `validate`, also on a structural failure
+ * so the caller gets the file/error list back either way); `error` is present on failure.
+ */
+export interface JsonEnvelope<T = unknown> {
+  readonly ok: boolean;
+  readonly command: string;
+  readonly data?: T;
+  readonly error?: { readonly message: string; readonly details?: readonly string[] };
+}
+
+function jsonResult<T>(code: number, envelope: JsonEnvelope<T>): CliResult {
+  return { code, stdout: `${JSON.stringify(envelope, null, 2)}\n`, stderr: '' };
+}
+
+function isJsonFlag(flags: ParsedFlags['flags']): boolean {
+  return flags.json === true || flags.json === 'true';
+}
+
 export function parseArgs(argv: readonly string[]): ParsedFlags {
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
@@ -60,9 +83,14 @@ export function parseArgs(argv: readonly string[]): ParsedFlags {
 
 export const USAGE = [
   'Usage:',
-  '  toolgovern-cli validate <policy-file>',
-  '  toolgovern-cli audit <trace-file> [--since <window>] [--decision <allow|deny|require-approval>] [--agent <id>] [--rule <ruleId>] [--verify-chain] [--key-file <path>]',
-  '  toolgovern-cli init [oma|langgraph] [--policy <path>] [--out <path>] [--force]',
+  '  toolgovern-cli validate <policy-file> [--json]',
+  '  toolgovern-cli audit <trace-file> [--since <window>] [--decision <allow|deny|require-approval>] [--agent <id>] [--rule <ruleId>] [--verify-chain] [--key-file <path>] [--json]',
+  '  toolgovern-cli init [oma|langgraph] [--policy <path>] [--out <path>] [--force] [--json]',
+  '',
+  '  --json      Emit a single structured JSON object on stdout instead of human-formatted text --',
+  '              { ok, command, data } on success, { ok: false, command, error } on failure. Exit',
+  '              code still reflects success/failure; nothing is ever split across stdout/stderr',
+  '              in --json mode. Meant for another program (an agent, a script) to parse reliably.',
   '',
   '  --key-file  Path to the secret key file used to verify hmac-sha256-signed trace entries.',
   '              Only needed if the trace was written with a TraceWriter secretKey. Entries',
@@ -74,27 +102,50 @@ export const USAGE = [
   '',
 ].join('\n');
 
-export function validateCommand(policyFile: string | undefined): CliResult {
+export function validateCommand(
+  policyFile: string | undefined,
+  flags: ParsedFlags['flags'] = {},
+): CliResult {
+  const json = isJsonFlag(flags);
+
   if (!policyFile) {
-    return { code: 2, stdout: '', stderr: `validate requires a <policy-file> argument.\n${USAGE}` };
+    const message = 'validate requires a <policy-file> argument.';
+    if (json) return jsonResult(2, { ok: false, command: 'validate', error: { message } });
+    return { code: 2, stdout: '', stderr: `${message}\n${USAGE}` };
   }
 
   let raw: unknown;
   try {
     raw = parseYaml(readFileSync(policyFile, 'utf8'));
   } catch (error) {
-    return {
-      code: 1,
-      stdout: '',
-      stderr: `Failed to read/parse "${policyFile}": ${(error as Error).message}\n`,
-    };
+    const message = `Failed to read/parse "${policyFile}": ${(error as Error).message}`;
+    if (json) return jsonResult(1, { ok: false, command: 'validate', error: { message } });
+    return { code: 1, stdout: '', stderr: `${message}\n` };
   }
 
   const result = validatePolicy(raw);
   if (result.valid) {
+    if (json) {
+      return jsonResult(0, {
+        ok: true,
+        command: 'validate',
+        data: { file: policyFile, valid: true, errors: [] },
+      });
+    }
     return { code: 0, stdout: `OK  ${policyFile} is a valid toolgovern policy.\n`, stderr: '' };
   }
 
+  if (json) {
+    return jsonResult(1, {
+      ok: false,
+      command: 'validate',
+      data: { file: policyFile, valid: false, errors: result.errors },
+      error: {
+        message: `"${policyFile}" is not a valid toolgovern policy.`,
+        details: result.errors,
+      },
+    });
+  }
   const stderr = [`INVALID  ${policyFile}`, ...result.errors.map((e) => `  - ${e}`), ''].join('\n');
   return { code: 1, stdout: '', stderr };
 }
@@ -105,22 +156,25 @@ export async function auditCommand(
   traceFile: string | undefined,
   flags: ParsedFlags['flags'],
 ): Promise<CliResult> {
+  const json = isJsonFlag(flags);
+
   if (!traceFile) {
-    return { code: 2, stdout: '', stderr: `audit requires a <trace-file> argument.\n${USAGE}` };
+    const message = 'audit requires a <trace-file> argument.';
+    if (json) return jsonResult(2, { ok: false, command: 'audit', error: { message } });
+    return { code: 2, stdout: '', stderr: `${message}\n${USAGE}` };
   }
 
   let entries;
   try {
     entries = await readTrace(traceFile);
   } catch (error) {
-    return {
-      code: 1,
-      stdout: '',
-      stderr: `Failed to read trace file "${traceFile}": ${(error as Error).message}\n`,
-    };
+    const message = `Failed to read trace file "${traceFile}": ${(error as Error).message}`;
+    if (json) return jsonResult(1, { ok: false, command: 'audit', error: { message } });
+    return { code: 1, stdout: '', stderr: `${message}\n` };
   }
 
   let stdout = '';
+  let chain: { readonly verified: boolean; readonly entries: number } | undefined;
 
   if (flags['verify-chain']) {
     let secretKey: Buffer | undefined;
@@ -128,15 +182,28 @@ export async function auditCommand(
       try {
         secretKey = readFileSync(flags['key-file']);
       } catch (error) {
-        return {
-          code: 1,
-          stdout: '',
-          stderr: `Failed to read --key-file "${flags['key-file']}": ${(error as Error).message}\n`,
-        };
+        const message = `Failed to read --key-file "${flags['key-file']}": ${(error as Error).message}`;
+        if (json) return jsonResult(1, { ok: false, command: 'audit', error: { message } });
+        return { code: 1, stdout: '', stderr: `${message}\n` };
       }
     }
     const verification = verifyChain(entries, { secretKey });
     if (!verification.valid) {
+      if (json) {
+        return jsonResult(1, {
+          ok: false,
+          command: 'audit',
+          data: {
+            file: traceFile,
+            chain: { verified: false, entries: entries.length },
+            issues: verification.issues,
+          },
+          error: {
+            message: `Chain verification failed for "${traceFile}".`,
+            details: verification.issues.map((issue) => `${issue.traceId}: ${issue.reason}`),
+          },
+        });
+      }
       const stderr = [
         `CHAIN INVALID  ${traceFile}`,
         ...verification.issues.map((issue) => `  - ${issue.traceId}: ${issue.reason}`),
@@ -144,16 +211,15 @@ export async function auditCommand(
       ].join('\n');
       return { code: 1, stdout: '', stderr };
     }
+    chain = { verified: true, entries: entries.length };
     stdout += `Chain OK -- ${entries.length} entries verified.\n`;
   }
 
   const decisionFlag = typeof flags.decision === 'string' ? flags.decision : undefined;
   if (decisionFlag && !VALID_DECISIONS.has(decisionFlag)) {
-    return {
-      code: 2,
-      stdout: '',
-      stderr: `--decision must be one of: allow, deny, require-approval (got "${decisionFlag}")\n`,
-    };
+    const message = `--decision must be one of: allow, deny, require-approval (got "${decisionFlag}")`;
+    if (json) return jsonResult(2, { ok: false, command: 'audit', error: { message } });
+    return { code: 2, stdout: '', stderr: `${message}\n` };
   }
 
   const query: TraceQuery = {
@@ -171,8 +237,26 @@ export async function auditCommand(
   try {
     filtered = filterTrace(entries, query);
   } catch (error) {
-    return { code: 2, stdout: '', stderr: `${(error as Error).message}\n` };
+    const message = (error as Error).message;
+    if (json) return jsonResult(2, { ok: false, command: 'audit', error: { message } });
+    return { code: 2, stdout: '', stderr: `${message}\n` };
   }
+
+  if (json) {
+    return jsonResult(0, {
+      ok: true,
+      command: 'audit',
+      data: {
+        file: traceFile,
+        chain,
+        query,
+        matched: filtered.length,
+        total: entries.length,
+        entries: filtered,
+      },
+    });
+  }
+
   for (const entry of filtered) {
     const rules = entry.rule_fired.length > 0 ? entry.rule_fired.join(', ') : '(no rule fired)';
     stdout += `${entry.decision.toUpperCase().padEnd(16)} ${entry.agent_id} -> ${entry.tool}  [${rules}]  ${entry.timestamp}\n`;
@@ -272,15 +356,14 @@ export function initCommand(
   flags: ParsedFlags['flags'],
   cwd: string,
 ): CliResult {
+  const json = isJsonFlag(flags);
   let target: ScaffoldFramework;
 
   if (framework) {
     if (framework !== 'oma' && framework !== 'langgraph') {
-      return {
-        code: 2,
-        stdout: '',
-        stderr: `Unknown framework "${framework}". Supported: oma, langgraph.\n${USAGE}`,
-      };
+      const message = `Unknown framework "${framework}". Supported: oma, langgraph.`;
+      if (json) return jsonResult(2, { ok: false, command: 'init', error: { message } });
+      return { code: 2, stdout: '', stderr: `${message}\n${USAGE}` };
     }
     target = framework;
   } else {
@@ -288,32 +371,26 @@ export function initCommand(
     try {
       pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8')) as PackageJsonShape;
     } catch (error) {
-      return {
-        code: 1,
-        stdout: '',
-        stderr: `Could not read package.json in "${cwd}": ${(error as Error).message}\n`,
-      };
+      const message = `Could not read package.json in "${cwd}": ${(error as Error).message}`;
+      if (json) return jsonResult(1, { ok: false, command: 'init', error: { message } });
+      return { code: 1, stdout: '', stderr: `${message}\n` };
     }
 
     const detected = detectFrameworks(pkg);
     if (detected.length === 0) {
-      return {
-        code: 1,
-        stdout: '',
-        stderr:
-          'No supported framework dependency detected in package.json (looked for ' +
-          'open-multi-agent/node_runner, @langchain/langgraph). ' +
-          'Pass one explicitly: toolgovern-cli init <oma|langgraph>\n',
-      };
+      const message =
+        'No supported framework dependency detected in package.json (looked for ' +
+        'open-multi-agent/node_runner, @langchain/langgraph). ' +
+        'Pass one explicitly: toolgovern-cli init <oma|langgraph>';
+      if (json) return jsonResult(1, { ok: false, command: 'init', error: { message } });
+      return { code: 1, stdout: '', stderr: `${message}\n` };
     }
     if (detected.length > 1) {
-      return {
-        code: 1,
-        stdout: '',
-        stderr:
-          `Multiple supported frameworks detected (${detected.join(', ')}). ` +
-          'Pass one explicitly: toolgovern-cli init <framework>\n',
-      };
+      const message =
+        `Multiple supported frameworks detected (${detected.join(', ')}). ` +
+        'Pass one explicitly: toolgovern-cli init <framework>';
+      if (json) return jsonResult(1, { ok: false, command: 'init', error: { message } });
+      return { code: 1, stdout: '', stderr: `${message}\n` };
     }
     target = detected[0]!;
   }
@@ -323,11 +400,9 @@ export function initCommand(
   const fullOutPath = resolve(cwd, outPath);
 
   if (existsSync(fullOutPath) && !flags.force) {
-    return {
-      code: 1,
-      stdout: '',
-      stderr: `"${outPath}" already exists. Pass --force to overwrite.\n`,
-    };
+    const message = `"${outPath}" already exists. Pass --force to overwrite.`;
+    if (json) return jsonResult(1, { ok: false, command: 'init', error: { message } });
+    return { code: 1, stdout: '', stderr: `${message}\n` };
   }
 
   const content = SCAFFOLD_TEMPLATES[target](policyPath);
@@ -335,11 +410,17 @@ export function initCommand(
     mkdirSync(dirname(fullOutPath), { recursive: true });
     writeFileSync(fullOutPath, content, 'utf8');
   } catch (error) {
-    return {
-      code: 1,
-      stdout: '',
-      stderr: `Failed to write "${outPath}": ${(error as Error).message}\n`,
-    };
+    const message = `Failed to write "${outPath}": ${(error as Error).message}`;
+    if (json) return jsonResult(1, { ok: false, command: 'init', error: { message } });
+    return { code: 1, stdout: '', stderr: `${message}\n` };
+  }
+
+  if (json) {
+    return jsonResult(0, {
+      ok: true,
+      command: 'init',
+      data: { framework: target, outPath, policyPath },
+    });
   }
 
   return {
@@ -360,7 +441,7 @@ export async function runCommand(argv: readonly string[]): Promise<CliResult> {
   }
 
   if (command === 'validate') {
-    return validateCommand(positional[0]);
+    return validateCommand(positional[0], flags);
   }
 
   if (command === 'audit') {
@@ -371,7 +452,11 @@ export async function runCommand(argv: readonly string[]): Promise<CliResult> {
     return initCommand(positional[0], flags, process.cwd());
   }
 
-  return { code: 2, stdout: '', stderr: `Unknown command "${command}".\n${USAGE}` };
+  const message = `Unknown command "${command}".`;
+  if (isJsonFlag(flags)) {
+    return jsonResult(2, { ok: false, command, error: { message } });
+  }
+  return { code: 2, stdout: '', stderr: `${message}\n${USAGE}` };
 }
 
 async function main(): Promise<void> {
