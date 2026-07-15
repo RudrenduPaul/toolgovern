@@ -496,7 +496,7 @@ corpus could still get through.
 **Can an agent invoke `toolgovern-cli` programmatically and parse the result itself?**
 Yes -- every command (`validate`, `audit`, `init`) takes `--json` and prints a single
 `{ ok, command, data | error }` object to stdout, never split across stdout/stderr, with the exit
-code (`0`/`1`/`2`) always matching `ok`. See [Command reference](#cli) above for the exact shapes.
+code (`0`/`1`/`2`) always matching `ok`. See [Command reference](#command-reference) above for the exact shapes.
 
 **Is there a hosted version?**
 No. Everything that exists today is in this repository, Apache 2.0, self-hosted only. See
