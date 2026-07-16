@@ -23,9 +23,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   `crypto.timingSafeEqual()`, guarded by a length check first (buffers of unequal length are
   rejected as non-matching without calling `timingSafeEqual`, which throws on unequal-length
   input -- the guard leaks nothing an attacker doesn't already know, since both signature
-  schemes' lengths are fixed and public). Flagged during a `[redacted]` security audit as a real but
-  low-severity gap: `verifyChain` runs against a local file in a single process, with no network
-  round-trip or remote oracle for an attacker to time, so this was judged below the audit's
+  schemes' lengths are fixed and public). Identified during a timing-analysis review as a real
+  but low-severity gap: `verifyChain` runs against a local file in a single process, with no
+  network round-trip or remote oracle for an attacker to time, so this was judged below the
   confidence gate for that threat model -- applied anyway as defense in depth, since the fix is
   free and the reasoning for skipping it stops applying the moment this logic is ever reused
   somewhere network-facing.
