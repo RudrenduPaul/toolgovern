@@ -10,8 +10,9 @@ npm run bench:latency
 ```
 
 This repo's own engineering standard: no detection-rate, false-positive-rate, or latency number
-is written into any doc unless it is the literal output of one of these two commands. The numbers below were captured by running each command three times on the same machine
-and are reported as the observed range, not rounded up.
+is written into any doc unless it is the literal output of one of these two commands. The numbers
+below were captured by running each command three times on the same machine and are reported as
+the observed range, not rounded up.
 
 ## Corpus
 
