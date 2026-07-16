@@ -98,6 +98,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
   before this fix, passing `--key-file` against a trace that was never hmac-signed made every
   legitimate entry spuriously fail chain verification, found during manual end-to-end CLI testing
 
+## [0.1.6] - 2026-07-16
+
+### Added
+
+- `toolgovern-cli`: `--json` flag on `validate`, `audit`, and `init` -- emits a single
+  structured `{ ok, command, data | error }` JSON object on stdout instead of human-formatted
+  text, so another program (an AI agent invoking the CLI programmatically, a script piping into
+  `jq`) can parse the result reliably. Exit codes are unchanged (0 success, 1 runtime error, 2
+  usage error); `--json` mode never splits output across stdout/stderr -- the full result,
+  success or failure, is always the one JSON object on stdout. `audit --json` includes the full
+  filtered `TraceEntry` objects, not a restated summary.
+- README audit: documented `--json` in the `toolgovern-cli` package README, added a
+  command/flag reference table and a `--json` section to the root README, refreshed
+  comparison-table star counts against a live check, and added Contributing/FAQ coverage for
+  the new agent-native output mode.
+
 ## [0.1.1] - 2026-07-12
 
 ### Added
