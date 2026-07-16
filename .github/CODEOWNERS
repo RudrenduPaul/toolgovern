@@ -1,0 +1,7 @@
+# CODEOWNERS
+#
+# CI/CD workflow changes are the highest-leverage place for a supply-chain
+# compromise to hide, so they always require review from the repo owner
+# before merging, regardless of what other paths are covered.
+
+/.github/workflows/ @RudrenduPaul
