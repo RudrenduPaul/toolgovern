@@ -108,7 +108,7 @@ _before_ the `trace.append()` call and before `onDecision()` fired. Two problems
 tool never ran (so it was not unsafe), but (a) the caller saw a raw, unrelated `Error` instead of
 the library's own `ToolGovernDenialError`, and (b) **no trace entry was written for that call at
 all** -- a silent gap in the audit trail. That directly violates this project's own rule that
-"every gate decision must be explainable from the trace alone" (`[redacted]`).
+"every gate decision must be explainable from the trace alone."
 
 Reproduced with a standalone test before fixing: a handler that threw `Error('handler blew up')`
 surfaced that exact error, not `ToolGovernDenialError`.
