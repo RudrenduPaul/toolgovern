@@ -58,7 +58,7 @@ describe('computeInheritedScope', () => {
     expect(granted.network).toEqual(['example.com']);
   });
 
-  it('grants exactly the narrower requested host, not the coordinator\'s broader domain grant', () => {
+  it("grants exactly the narrower requested host, not the coordinator's broader domain grant", () => {
     // A sub-agent that requests a specific host under a domain the coordinator holds broadly
     // must be granted that specific host, not widened out to the coordinator's whole domain
     // -- filtering only the coordinator list (the original bug) returned ['example.com'] here
