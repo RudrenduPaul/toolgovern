@@ -58,6 +58,18 @@ describe('computeInheritedScope', () => {
     expect(granted.network).toEqual(['example.com']);
   });
 
+  it('grants exactly the narrower requested host, not the coordinator\'s broader domain grant', () => {
+    // A sub-agent that requests a specific host under a domain the coordinator holds broadly
+    // must be granted that specific host, not widened out to the coordinator's whole domain
+    // -- filtering only the coordinator list (the original bug) returned ['example.com'] here
+    // instead of the single host actually requested.
+    const granted = computeInheritedScope(
+      { network: ['example.com'], filesystem: [], credentials: [] },
+      { network: ['api.example.com'], filesystem: [], credentials: [] },
+    );
+    expect(granted.network).toEqual(['api.example.com']);
+  });
+
   it('never grants a credential the coordinator does not have', () => {
     const granted = computeInheritedScope(
       { network: false, filesystem: [], credentials: [] },

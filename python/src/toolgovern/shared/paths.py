@@ -66,9 +66,49 @@ def normalize_host(host_like: str) -> str:
     return without_port.lower()
 
 
-def _is_ipv4_literal(host: str) -> bool:
-    """True if ``host`` is a raw IPv4 literal (not a domain name)."""
+def _is_dotted_ipv4_literal(host: str) -> bool:
+    """True if ``host`` is a dotted-decimal IPv4 literal (``a.b.c.d``), and only that form --
+    used where a bare decimal integer must NOT be treated as an IP (parsing an IPv6 literal's
+    hextets, where a plain numeric group like ``1234`` in ``fe80::1234`` is ordinary hex, not
+    a packed IPv4 address). ``_parse_ipv4_octets`` below is the looser, general-purpose check."""
     return bool(re.match(r"^(\d{1,3}\.){3}\d{1,3}$", host))
+
+
+def _parse_ipv4_octets(host: str) -> Optional[Tuple[int, int, int, int]]:
+    """Parses ``host`` as an IPv4 address in either dotted-decimal (``a.b.c.d``) or bare
+    single-integer decimal form (the same address packed into one 32-bit unsigned integer,
+    e.g. ``2852039166`` for ``169.254.169.254``) -- the latter is accepted as a valid IP
+    literal by curl, browsers, and most OS resolvers, and is a well-known technique for
+    slipping a private/metadata target past a dotted-decimal-only IP-literal check. Returns
+    the four octets, or ``None`` if ``host`` is neither form."""
+    if _is_dotted_ipv4_literal(host):
+        octets_str = host.split(".")
+        if len(octets_str) != 4:
+            return None
+        try:
+            octets = [int(o) for o in octets_str]
+        except ValueError:
+            return None
+        if any(o > 255 for o in octets):
+            return None
+        return (octets[0], octets[1], octets[2], octets[3])
+    if re.match(r"^\d{1,10}$", host):
+        value = int(host)
+        if value < 0 or value > 0xFFFFFFFF:
+            return None
+        return (
+            (value >> 24) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 8) & 0xFF,
+            value & 0xFF,
+        )
+    return None
+
+
+def _is_ipv4_literal(host: str) -> bool:
+    """True if ``host`` is a raw IPv4 literal (not a domain name), dotted-decimal or bare
+    single-integer decimal form (see ``_parse_ipv4_octets``)."""
+    return _parse_ipv4_octets(host) is not None
 
 
 def _strip_ipv6_decoration(host: str) -> str:
@@ -113,7 +153,7 @@ def _parse_ipv6_groups(host: str) -> Optional[List[int]]:
     embedded_ipv4: Optional[List[int]] = None
     if tail_parts:
         last_tail_part = tail_parts[-1]
-        if last_tail_part and _is_ipv4_literal(last_tail_part):
+        if last_tail_part and _is_dotted_ipv4_literal(last_tail_part):
             octets_str = last_tail_part.split(".")
             if len(octets_str) != 4:
                 return None
@@ -185,17 +225,9 @@ def is_private_or_metadata_target(host: str) -> bool:
     (169.254.169.254 and its IPv6 equivalents: ::1, fe80::/10, fc00::/7, and IPv4-mapped
     ::ffff:a.b.c.d addresses that resolve into one of the above IPv4 ranges) -- the set of
     destinations a rubber-stamped human approval should never be able to wave through."""
-    if _is_ipv4_literal(host):
-        octets_str = host.split(".")
-        if len(octets_str) != 4:
-            return False
-        try:
-            octets = [int(o) for o in octets_str]
-        except ValueError:
-            return False
-        if any(o > 255 for o in octets):
-            return False
-        return _is_private_ipv4_octets((octets[0], octets[1], octets[2], octets[3]))
+    ipv4_octets = _parse_ipv4_octets(host)
+    if ipv4_octets is not None:
+        return _is_private_ipv4_octets(ipv4_octets)
 
     groups = _parse_ipv6_groups(_strip_ipv6_decoration(host))
     if not groups:

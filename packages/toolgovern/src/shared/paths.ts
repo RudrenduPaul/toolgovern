@@ -61,9 +61,38 @@ export function normalizeHost(hostLike: string): string {
   return withoutPort.toLowerCase();
 }
 
-/** True if `host` is a raw IPv4 literal (not a domain name). */
-function isIpv4Literal(host: string): boolean {
+/** True if `host` is a dotted-decimal IPv4 literal (`a.b.c.d`), and only that form -- used
+ *  where a bare decimal integer must NOT be treated as an IP (parsing an IPv6 literal's
+ *  hextets, where a plain numeric group like `1234` in `fe80::1234` is ordinary hex, not a
+ *  packed IPv4 address). `parseIpv4Octets` below is the looser, general-purpose check. */
+function isDottedIpv4Literal(host: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+}
+
+/** Parses `host` as an IPv4 address in either dotted-decimal (`a.b.c.d`) or bare
+ *  single-integer decimal form (the same address packed into one 32-bit unsigned integer,
+ *  e.g. `2852039166` for `169.254.169.254`) -- the latter is accepted as a valid IP literal
+ *  by curl, browsers, and most OS resolvers, and is a well-known technique for slipping a
+ *  private/metadata target past a dotted-decimal-only IP-literal check. Returns the four
+ *  octets, or `null` if `host` is neither form. */
+function parseIpv4Octets(host: string): [number, number, number, number] | null {
+  if (isDottedIpv4Literal(host)) {
+    const octets = host.split('.').map(Number);
+    if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o > 255)) return null;
+    return octets as [number, number, number, number];
+  }
+  if (/^\d{1,10}$/.test(host)) {
+    const value = Number(host);
+    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) return null;
+    return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
+  }
+  return null;
+}
+
+/** True if `host` is a raw IPv4 literal (not a domain name), dotted-decimal or bare
+ *  single-integer decimal form (see `parseIpv4Octets`). */
+function isIpv4Literal(host: string): boolean {
+  return parseIpv4Octets(host) !== null;
 }
 
 /** Strips an optional surrounding `[...]` bracket pair and a trailing `%zone` scope id from an
@@ -103,7 +132,7 @@ function parseIpv6Groups(host: string): number[] | null {
   // An embedded IPv4 tail (`::ffff:169.254.169.254`) contributes two hextets worth of bits.
   let embeddedIpv4: number[] | null = null;
   const lastTailPart = tailParts[tailParts.length - 1];
-  if (lastTailPart && isIpv4Literal(lastTailPart)) {
+  if (lastTailPart && isDottedIpv4Literal(lastTailPart)) {
     const octets = lastTailPart.split('.').map(Number);
     if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o > 255)) return null;
     const [o0, o1, o2, o3] = octets as [number, number, number, number];
@@ -161,10 +190,9 @@ function isPrivateIpv4Octets(octets: readonly [number, number, number, number]):
  *  that resolve into one of the above IPv4 ranges) -- the set of destinations a rubber-stamped
  *  human approval should never be able to wave through. */
 export function isPrivateOrMetadataTarget(host: string): boolean {
-  if (isIpv4Literal(host)) {
-    const octets = host.split('.').map(Number);
-    if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o > 255)) return false;
-    return isPrivateIpv4Octets(octets as [number, number, number, number]);
+  const ipv4Octets = parseIpv4Octets(host);
+  if (ipv4Octets) {
+    return isPrivateIpv4Octets(ipv4Octets);
   }
 
   const groups = parseIpv6Groups(stripIpv6Decoration(host));

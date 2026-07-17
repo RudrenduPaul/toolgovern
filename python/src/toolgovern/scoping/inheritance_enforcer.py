@@ -31,11 +31,25 @@ def _intersect_network(coordinator, requested):
         return list(requested_list) if requested_list is not None else []
     if requested_list is None:
         return list(coordinator_list)
-    return [
-        host
-        for host in coordinator_list
-        if any(host_matches_allowed(host, req) or host_matches_allowed(req, host) for req in requested_list)
-    ]
+    # For each (coordinator, requested) pair that are the same host or one is a subdomain of
+    # the other, grant the NARROWER of the two -- not unconditionally whichever list's entry
+    # matched. Filtering only the coordinator list (the original bug) grants a sub-agent that
+    # asked for a narrow host (api.example.com) the coordinator's much broader entry
+    # (example.com) whenever the broader entry's domain happens to cover the narrow request.
+    # Filtering only the requested list would fix that case but breaks the opposite one: a
+    # sub-agent that broadly requests example.com while the coordinator holds both
+    # example.com and a narrower api.example.com should still receive the narrower
+    # api.example.com grant intact (it's covered by the broad request, not widened by it).
+    granted: "dict[str, None]" = {}
+    for coord_host in coordinator_list:
+        for req_host in requested_list:
+            if coord_host == req_host:
+                granted[coord_host] = None
+            elif host_matches_allowed(coord_host, req_host):
+                granted[coord_host] = None  # coordinator's entry is the narrower (subdomain) value
+            elif host_matches_allowed(req_host, coord_host):
+                granted[req_host] = None  # requested entry is the narrower (subdomain) value
+    return list(granted.keys())
 
 
 def _intersect_filesystem(coordinator, requested):

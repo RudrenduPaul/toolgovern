@@ -29,6 +29,12 @@ describe('TG01 shell/process execution risk', () => {
     it('does not flag a plain ls', () => expect(fires('TG01-rm-rf', 'ls -la')).toBe(false));
     it('does not flag rm without -rf', () =>
       expect(fires('TG01-rm-rf', 'rm file.txt')).toBe(false));
+    it('flags rm -f /path -r (flags reordered after the path -- GNU getopt still runs this as rm -rf)', () =>
+      expect(fires('TG01-rm-rf', 'rm -f /home/victim -r')).toBe(true));
+    it('flags rm --recursive --force / (GNU long-flag form)', () =>
+      expect(fires('TG01-rm-rf', 'rm --recursive --force /')).toBe(true));
+    it('flags rm --force -- ~ (long and short flags mixed, with an end-of-options marker)', () =>
+      expect(fires('TG01-rm-rf', 'rm --force -r -- ~')).toBe(true));
   });
 
   describe('TG01-pipe-to-shell', () => {
@@ -68,6 +74,8 @@ describe('TG01 shell/process execution risk', () => {
       expect(fires('TG01-chmod-777', 'chmod 644 ./workspace/file.txt')).toBe(false));
     it('does not flag chmod +x on a scoped script', () =>
       expect(fires('TG01-chmod-777', 'chmod +x ./workspace/run.sh')).toBe(false));
+    it('flags chmod --recursive 777 (GNU long-flag form the old flag-group regex could not match at all)', () =>
+      expect(fires('TG01-chmod-777', 'chmod --recursive 777 /etc/foo')).toBe(true));
   });
 
   describe('TG01-fork-bomb', () => {

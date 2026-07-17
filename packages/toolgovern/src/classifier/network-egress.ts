@@ -75,12 +75,20 @@ const rawIpLiteral: Rule = {
   evaluate(ctx) {
     const host = extractCandidateHost(ctx.args);
     if (!host || !isIpLiteral(host)) return null;
-    if (ctx.scope.network === true) return null;
+    // An explicit, exact allowlist entry for this host is honored even if it is private/
+    // metadata -- that's a deliberate, specific operator decision (they named this exact
+    // address), unlike the blanket `scope.network === true` grant checked below, which
+    // incidentally covers everything including metadata endpoints without the operator ever
+    // having considered this specific address.
     if (Array.isArray(ctx.scope.network) && ctx.scope.network.includes(host)) return null;
     if (isPrivateOrMetadataTarget(host)) {
       // Loopback, RFC1918/unique-local, link-local, and cloud-metadata targets (e.g.
-      // `169.254.169.254`) are denied outright -- a human approver must never be able to
-      // rubber-stamp a call into an internal network or a cloud metadata endpoint.
+      // `169.254.169.254`) are denied outright for any scope that did not explicitly name
+      // this exact host above -- this check must run before the `scope.network === true`
+      // early-return below, not after it: an agent with unrestricted (but not
+      // host-specific) network access must still never be able to reach an internal
+      // network or cloud-metadata endpoint via this rule. That's the entire point of
+      // "never approvable" -- it cannot be conditional on a blanket `network: true` grant.
       return match(
         this,
         'deny',
@@ -88,6 +96,7 @@ const rawIpLiteral: Rule = {
         host,
       );
     }
+    if (ctx.scope.network === true) return null;
     return match(this, 'require-approval', `Connection to raw IP literal "${host}".`, host);
   },
 };

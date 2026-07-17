@@ -39,6 +39,19 @@ class TestRmRf:
         decision, ids = _fired(ctx_factory({"command": "rm -r ./build"}))
         assert "TG01-rm-rf" not in ids
 
+    def test_fires_when_flags_trail_the_path(self, ctx_factory):
+        # GNU coreutils' getopt permutes argv, so `rm -f /home/victim -r` still executes as
+        # `rm -rf /home/victim` even though -r trails the path -- a flags-must-be-contiguous-
+        # and-leading regex misses this entirely.
+        decision, ids = _fired(ctx_factory({"command": "rm -f /home/victim -r"}))
+        assert decision == "deny"
+        assert "TG01-rm-rf" in ids
+
+    def test_fires_on_gnu_long_flags(self, ctx_factory):
+        decision, ids = _fired(ctx_factory({"command": "rm --recursive --force /"}))
+        assert decision == "deny"
+        assert "TG01-rm-rf" in ids
+
     def test_redos_resistance(self, ctx_factory):
         payload = "rm -" + "f" * 80_000
         start = time.monotonic()
@@ -125,6 +138,14 @@ class TestChmod777:
     def test_chmod_644_does_not_fire(self, ctx_factory):
         decision, ids = _fired(ctx_factory({"command": "chmod 644 file.txt"}))
         assert "TG01-chmod-777" not in ids
+
+    def test_chmod_gnu_long_flag_fires(self, ctx_factory):
+        # A preceding-flag-group regex requiring `-[a-z]+` fails to match a GNU long flag like
+        # --recursive (the second character is `-`, not a-z), which made the *entire* old
+        # pattern fail to match rather than just the flag capture.
+        decision, ids = _fired(ctx_factory({"command": "chmod --recursive 777 /etc/foo"}))
+        assert decision == "deny"
+        assert "TG01-chmod-777" in ids
 
 
 class TestForkBomb:
