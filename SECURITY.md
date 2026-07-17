@@ -2,7 +2,18 @@
 
 toolgovern is a runtime governance/security tool. Vulnerabilities in it directly undermine the
 guarantees it is meant to provide, so we treat reports seriously and ask that you report privately
-first.
+first. This applies equally to both distributions -- the npm packages and the PyPI package are
+maintained together, and a finding in either is in scope.
+
+## Supported packages
+
+| Package | Version | Supported |
+| --- | --- | --- |
+| `toolgovern` (npm) | 0.1.x | Yes |
+| `toolgovern-cli` (npm) | 0.1.x | Yes |
+| `toolgovern-integration-langgraph` (npm) | 0.1.x | Yes |
+| `toolgovern-integration-oma` (npm) | 0.1.x | Yes |
+| `toolgovern` (PyPI) | 0.1.x | Yes |
 
 ## Reporting a vulnerability
 
@@ -22,14 +33,18 @@ We will acknowledge a report within 5 business days and aim to provide an initia
 
 In scope:
 
-- The classifier (`packages/toolgovern/src/classifier/`) -- any input that should be denied or
-  require approval but is instead allowed
-- The scoping registry (`packages/toolgovern/src/scoping/`) -- any way a sub-agent can exceed the
-  scope its coordinator actually granted it
-- The trace writer/reader (`packages/toolgovern/src/trace/`) -- any way a trace entry's content
-  can be altered without `verifyChain()` detecting it
-- `toolgovern-cli` -- any way `validate` or `audit` can be tricked into reporting an incorrect
-  result
+- The classifier (`packages/toolgovern/src/classifier/`, `python/src/toolgovern/classifier/`)
+  -- any input that should be denied or require approval but is instead allowed, in either
+  distribution
+- The scoping registry (`packages/toolgovern/src/scoping/`, `python/src/toolgovern/scoping/`)
+  -- any way a sub-agent can exceed the scope its coordinator actually granted it
+- The trace writer/reader (`packages/toolgovern/src/trace/`, `python/src/toolgovern/trace/`) --
+  any way a trace entry's content can be altered without `verifyChain()`/`verify_chain()`
+  detecting it
+- `toolgovern-cli` (either distribution) -- any way `validate` or `audit` can be tricked into
+  reporting an incorrect result
+- Any behavioral divergence between the two distributions that would cause the same policy or
+  trace file to be evaluated differently depending on which CLI/library processes it
 
 Out of scope for v0.1 (documented, not hidden):
 

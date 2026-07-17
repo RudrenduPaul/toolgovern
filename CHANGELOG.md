@@ -4,6 +4,53 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Python 0.1.0] - 2026-07-16
+
+Initial PyPI release. A genuine Python port of `packages/toolgovern` and
+`packages/toolgovern-cli` -- not a wrapper around the Node binary.
+
+### Added
+
+- `toolgovern` on PyPI: the full 34-rule classifier (TG01 9 rules, TG02 7, TG03 6, TG04 6, TG05
+  6), ported rule-for-rule with the same regex patterns, obfuscation-resistance normalization
+  (`normalize_for_match`), and ReDoS-safe `rm -rf` pattern as the TypeScript original
+- `ScopeRegistry` / `compute_inherited_scope` -- the same default-deny, intersection-only scope
+  inheritance model, including the coordinator-scope-shrinks re-check
+- `TraceWriter` / `read_trace` / `verify_chain` -- the same signed, append-only JSON Lines trace
+  format: unkeyed `sha256:` content hash by default, optional `hmac-sha256:` keyed signing via
+  `secret_key`, constant-time signature comparison (`hmac.compare_digest`)
+- `load_policy` / `validate_policy` -- the same YAML policy schema and validation rules,
+  including full-error-list reporting and rule-ID reference checking against the real registry
+- `govern_tool()` -- the same gate pipeline (classify -> approval flow with fail-closed
+  timeout/exception handling -> trace write -> deny raises / allow executes), including the
+  optional in-memory idempotency cache and `on_tool_result` post-execution hook
+- `toolgovern-cli` console script: `validate <policy-file>` and
+  `audit <trace-file> [--since] [--decision] [--agent] [--rule] [--verify-chain] [--key-file]`,
+  both with a `--json` structured-output mode matching the npm CLI's envelope shape
+- 237 pytest tests covering all 5 rule categories (with true/false-positive cases per rule,
+  obfuscation-resistance regressions, and a ReDoS timing regression test), scope-inheritance
+  edge cases, both trace signing schemes (including a dedicated test proving the unkeyed
+  scheme's forgeability and the keyed scheme closing that gap), policy validation, the full
+  `govern_tool()` middleware (approval flow, fail-closed timeout, throwing-handler regression,
+  idempotency, `on_tool_result`), and both CLI subcommands
+- `python/docs/getting-started.md`, `docs/concepts.md`, `docs/integrations/ci.md` -- shared
+  docs covering both distributions
+- `python/examples/` -- 3 runnable examples: gating a tool, scope-inheritance intersection, and
+  signed-trail writing/verification (both signing modes, including a live tamper demonstration)
+
+### Known scope limitation (disclosed, not a gap in the port)
+
+- `toolgovern-cli init [oma|langgraph]` (the npm CLI's TypeScript integration-file scaffolder)
+  is intentionally **not** ported -- it generates a `.ts` file importing
+  `toolgovern-integration-langgraph`/`toolgovern-integration-oma`, both JS/TS packages. This is
+  out of scope for a Python port by nature, not an oversight; `validate` and `audit` are
+  otherwise behaviorally equivalent (including `--json` output shape) between both CLIs.
+- The `toolgovern-integration-langgraph` and `toolgovern-integration-oma` npm packages are not
+  ported to Python in this release. Both are thin wrapper packages in the TS source (roughly
+  170 combined lines, no independent governance logic -- everything routes through
+  `governTool()`/`govern_tool()` in core) and are tracked as a follow-up, not because porting
+  them is hard, but to keep this first PyPI release scoped to the governance engine core.
+
 ## [Unreleased]
 
 ### Added
