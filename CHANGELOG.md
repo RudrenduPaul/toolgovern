@@ -40,6 +40,14 @@ issue with the package itself -- see the PR for the real-time status.
 - `python/examples/` -- 3 runnable examples: gating a tool, scope-inheritance intersection, and
   signed-trail writing/verification (both signing modes, including a live tamper demonstration)
 
+### Fixed
+
+- `python/README.md`: added a "Why this exists" section (the runtime-governance gap the 34-rule
+  classifier, intersection-only scope inheritance, and signed audit trail close), matching the
+  structure of sibling package READMEs. Docs-only; still pre-publish, so this stays 0.1.0 rather
+  than bumping -- the stored wheel/sdist waiting on PyPI's new-project throttle to clear were
+  rebuilt from this corrected README before being retried.
+
 ### Known scope limitation (disclosed, not a gap in the port)
 
 - `toolgovern-cli init [oma|langgraph]` (the npm CLI's TypeScript integration-file scaffolder)
