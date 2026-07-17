@@ -6,13 +6,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Python 0.1.0] - 2026-07-16
 
-Initial PyPI release. A genuine Python port of `packages/toolgovern` and
-`packages/toolgovern-cli` -- not a wrapper around the Node binary.
+A genuine Python port of `packages/toolgovern` and `packages/toolgovern-cli` -- not a wrapper
+around the Node binary. Code-complete, fully tested, and built; PyPI publish is pending a
+platform-side throttle on this account (`429 Too many new projects created`) rather than any
+issue with the package itself -- see the PR for the real-time status.
 
 ### Added
 
-- `toolgovern` on PyPI: the full 34-rule classifier (TG01 9 rules, TG02 7, TG03 6, TG04 6, TG05
-  6), ported rule-for-rule with the same regex patterns, obfuscation-resistance normalization
+- `toolgovern`, built and ready for PyPI: the full 34-rule classifier (TG01 9 rules, TG02 7,
+  TG03 6, TG04 6, TG05 6), ported rule-for-rule with the same regex patterns, obfuscation-resistance normalization
   (`normalize_for_match`), and ReDoS-safe `rm -rf` pattern as the TypeScript original
 - `ScopeRegistry` / `compute_inherited_scope` -- the same default-deny, intersection-only scope
   inheritance model, including the coordinator-scope-shrinks re-check
