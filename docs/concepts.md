@@ -18,13 +18,13 @@ synchronous; the classifier itself is pure and deterministic in both languages.
 
 ## The classifier: 34 rules across 5 categories
 
-| Category | What it covers | Rule count |
-| --- | --- | --- |
-| TG01 | Shell/process execution risk (`rm -rf`, pipe-to-shell, sudo, chmod 777, fork bombs, reverse shells, disk wipes, decoded-payload execution, context-flooding reads) | 9 |
-| TG02 | Filesystem scope escalation (write/delete/chmod/read/symlink outside declared scope, path traversal, sensitive system paths) | 7 |
-| TG03 | Undeclared network egress (disabled network, host not in allowlist, raw IP literals, non-standard ports, DNS-exfil patterns, known paste/relay services) | 6 |
-| TG04 | Credential/secret access (`.env`, SSH keys, cloud credential files, OS keychains, bulk env dumps, named credentials outside scope) | 6 |
-| TG05 | Cross-agent privilege inheritance (unregistered sub-agents, zero-capability grants, requests exceeding what a coordinator actually granted) | 6 |
+| Category | What it covers                                                                                                                                                     | Rule count |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| TG01     | Shell/process execution risk (`rm -rf`, pipe-to-shell, sudo, chmod 777, fork bombs, reverse shells, disk wipes, decoded-payload execution, context-flooding reads) | 9          |
+| TG02     | Filesystem scope escalation (write/delete/chmod/read/symlink outside declared scope, path traversal, sensitive system paths)                                       | 7          |
+| TG03     | Undeclared network egress (disabled network, host not in allowlist, raw IP literals, non-standard ports, DNS-exfil patterns, known paste/relay services)           | 6          |
+| TG04     | Credential/secret access (`.env`, SSH keys, cloud credential files, OS keychains, bulk env dumps, named credentials outside scope)                                 | 6          |
+| TG05     | Cross-agent privilege inheritance (unregistered sub-agents, zero-capability grants, requests exceeding what a coordinator actually granted)                        | 6          |
 
 Every fired rule carries a `ruleId`, a `decision` (`deny` or `require-approval` -- a rule never
 returns `allow`; it either fires or it doesn't), a human-readable `reason`, and the argument

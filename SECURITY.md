@@ -7,13 +7,13 @@ maintained together, and a finding in either is in scope.
 
 ## Supported packages
 
-| Package | Version | Supported |
-| --- | --- | --- |
-| `toolgovern` (npm) | 0.1.x | Yes |
-| `toolgovern-cli` (npm) | 0.1.x | Yes |
-| `toolgovern-integration-langgraph` (npm) | 0.1.x | Yes |
-| `toolgovern-integration-oma` (npm) | 0.1.x | Yes |
-| `toolgovern` (PyPI) | 0.1.x | Yes |
+| Package                                  | Version | Supported |
+| ---------------------------------------- | ------- | --------- |
+| `toolgovern` (npm)                       | 0.1.x   | Yes       |
+| `toolgovern-cli` (npm)                   | 0.1.x   | Yes       |
+| `toolgovern-integration-langgraph` (npm) | 0.1.x   | Yes       |
+| `toolgovern-integration-oma` (npm)       | 0.1.x   | Yes       |
+| `toolgovern` (PyPI)                      | 0.1.x   | Yes       |
 
 ## Reporting a vulnerability
 

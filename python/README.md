@@ -63,13 +63,13 @@ gated_shell = govern_tool(shell_tool, GovernToolOptions.from_policy(policy))
 The classifier evaluates a tool call's actual arguments, not the tool's name, against 34 rules
 across 5 categories:
 
-| Category | Covers | Rules |
-| --- | --- | --- |
-| TG01 | Shell/process execution risk | 9 |
-| TG02 | Filesystem scope escalation | 7 |
-| TG03 | Undeclared network egress | 6 |
-| TG04 | Credential/secret access | 6 |
-| TG05 | Cross-agent privilege inheritance | 6 |
+| Category | Covers                            | Rules |
+| -------- | --------------------------------- | ----- |
+| TG01     | Shell/process execution risk      | 9     |
+| TG02     | Filesystem scope escalation       | 7     |
+| TG03     | Undeclared network egress         | 6     |
+| TG04     | Credential/secret access          | 6     |
+| TG05     | Cross-agent privilege inheritance | 6     |
 
 `govern_tool()` wraps any `ToolDefinition(name, execute)` and returns a version that runs every
 call through this pipeline before `execute()` runs: resolve the effective scope, classify the
