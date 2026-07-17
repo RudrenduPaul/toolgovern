@@ -3,6 +3,13 @@
 Thanks for considering a contribution. This document covers how the repo is laid out, how to get
 a working dev environment, and what a change needs to pass before it can merge.
 
+toolgovern ships two independent, first-class distributions from this one repo: the original
+TypeScript/npm packages, and a genuine Python port published to PyPI (not a wrapper around the
+Node binary). **Hard parity rule**: a classifier-rule, scope-inheritance, or trace-format change
+must be made in both `packages/toolgovern/src/` and `python/src/toolgovern/`, with equivalent
+test coverage added to both suites. A behavioral divergence between the two distributions is a
+bug in this project, not an acceptable inconsistency.
+
 ## Repo layout
 
 ```
@@ -10,11 +17,15 @@ packages/toolgovern/       the middleware library (npm package: toolgovern)
 packages/toolgovern-cli/   the CLI (npm package: toolgovern-cli)
 integrations/oma/          a generic, documented adapter shape for a multi-agent
                             framework's tool-executor call site
+integrations/langgraph/    routes LangGraph.js tool calls through governTool()
+python/                    the Python port (PyPI package: toolgovern), console script
+                            toolgovern-cli -- see python/README.md
 benchmarks/                detection-rate and latency benchmarks against a labeled corpus
-docs/                      policy file schema and other reference docs
+docs/                      policy file schema, trace format, security model, and other
+                            reference docs shared by both distributions
 ```
 
-## Getting started
+## Working on the TypeScript package
 
 ```bash
 npm install
@@ -22,7 +33,7 @@ npm run build
 npm test
 ```
 
-## What every change needs before it can merge
+### What every TypeScript change needs before it can merge
 
 1. **Lint:** `npm run lint && npm run format`
 2. **Types:** `npm run typecheck` -- strict mode, zero errors, zero unexplained `@ts-ignore`/`@ts-expect-error`
@@ -30,6 +41,28 @@ npm test
 4. **Security:** `npm audit --audit-level=high` -- no unfixed HIGH/CRITICAL advisories
 
 CI runs all four on every pull request. A PR that fails any of them will not be merged.
+
+## Working on the Python package
+
+```bash
+cd python
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
+
+### What every Python change needs before it can merge
+
+1. **Tests:** `pytest` -- every classifier rule needs true-positive and true-negative coverage;
+   a scoping-inheritance change needs a test proving a sub-agent still cannot exceed the
+   intersection of what it requested and what its coordinator actually had; a trace-format
+   change needs a test confirming `verify_chain()` still detects a tampered entry and a broken
+   `prior_trace_id` link
+2. Build the wheel and sdist **outside** the `python/` source tree before publishing (a venv
+   built inside `python/` gets bundled into the sdist by hatchling's default sdist target) --
+   see the release checklist in this repo's own build history for the exact commands
+3. Inspect the built wheel/sdist file listing (`unzip -l` / `tar tzf`) before any `twine upload`
+   to confirm it contains only real project files
 
 ## Adding or changing a classifier rule
 
