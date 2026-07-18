@@ -395,6 +395,37 @@ This is new capability for LangGraph.js users going forward -- it does not retro
 any previously reported LangGraph issue, since every LangGraph issue this project has validated
 was filed against the Python `langchain-ai/langgraph` repository, not `langgraphjs`.
 
+### `toolgovern-integration-langgraph` (Python) -- LangGraph
+
+The separately maintained Python `langgraph` package DOES expose a `wrap_tool_call` hook, a public
+`ToolNode` constructor parameter (confirmed against the real, installed `langgraph==1.2.9` /
+`langgraph-prebuilt==1.1.0` source). Every real LangGraph GitHub issue this project has validated
+(`langchain-ai/langgraph` #8026, #7687, #7178, #8169) is filed against exactly this package, so
+this is the integration that targets real, reported behavior -- see
+[`integrations/langgraph-python/docs/root-cause.md`](./integrations/langgraph-python/docs/root-cause.md)
+for the per-issue PASS/PARTIAL/FAIL verdicts.
+
+```bash
+pip install toolgovern-integration-langgraph
+```
+
+```python
+from langgraph.prebuilt import ToolNode
+from toolgovern import GovernToolOptions, load_policy
+from toolgovern_integration_langgraph import governed_tool_node
+
+policy = load_policy("./toolgovern.policy.yml")
+options = GovernToolOptions.from_policy(policy, agent_id="research-sub", session_id="demo-session")
+
+tool_node = governed_tool_node(my_tools, options)
+# wire tool_node into your StateGraph exactly as you would with the raw tools array --
+# every call now flows through toolgovern's classifier first.
+```
+
+See [`integrations/langgraph-python/README.md`](./integrations/langgraph-python/README.md) for
+the tool-definition-boundary alternative (`governed_tool`/`governed_tools`) and the verified,
+version-specific `handle_tool_errors` behavior a denial surfaces through.
+
 ## CLI
 
 ```bash
