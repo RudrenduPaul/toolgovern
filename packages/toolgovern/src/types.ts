@@ -111,6 +111,22 @@ export interface Rule {
   evaluate(ctx: RuleContext): RuleMatch | null;
 }
 
+/**
+ * An async classifier rule: same shape as `Rule`, but its check requires an I/O operation (a DNS
+ * lookup, currently) that cannot complete synchronously. Evaluated only by `classifyAsync()` in
+ * `classifier/index.ts`, never by the synchronous `classify()` -- a caller that only has `classify()`
+ * available (no event loop to await from) simply never runs these; that is a real, narrower-coverage
+ * tradeoff, not a bug, and is why `governTool()` (which is already async end-to-end) switched to
+ * `classifyAsync()` specifically so this check is not silently skipped in the one call path most
+ * integrations actually use.
+ */
+export interface AsyncRule {
+  readonly id: string;
+  readonly category: RuleCategory;
+  readonly description: string;
+  evaluateAsync(ctx: RuleContext): Promise<RuleMatch | null>;
+}
+
 /** The classifier's aggregate verdict for one tool call. */
 export interface ClassifierResult {
   readonly decision: Decision;

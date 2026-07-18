@@ -65,6 +65,33 @@ issue with the package itself -- see the PR for the real-time status.
 
 ### Added
 
+- `TG03-dns-resolves-private` -- closes the TG03 network-egress sub-gap where a **hostname**
+  argument that _resolves_ to a loopback/RFC1918/link-local/cloud-metadata address (e.g.
+  `internal-alias.attacker.io -> 127.0.0.1`) sailed through undetected, since the existing
+  `TG03-raw-ip-literal` rule only ever inspected the literal argument string, never performed a
+  DNS lookup. TypeScript: resolves via `dns.promises.lookup()` in a new async-only
+  `TG03-dns-resolves-private` rule, evaluated by a new `classifyAsync()` (`governTool()`'s already-
+  async `execute()` now calls this instead of the synchronous `classify()`); the pre-existing
+  34-rule synchronous `classify()`/`ruleRegistry` is unchanged and does not run this one
+  DNS-dependent rule. Python: resolves via `socket.getaddrinfo()` as an ordinary synchronous member
+  of the single `rule_registry`/`classify()` (35 rules total there), since `govern_tool()` is
+  synchronous end to end in that port. Both sides fail closed (`require-approval`, never `allow`)
+  on a DNS-resolution failure, empty result set, or timeout (3s, matching the existing approval-
+  timeout idiom). Disclosed, not claimed as complete: this narrows but does not eliminate
+  DNS-rebinding TOCTOU (an attacker can still change the DNS answer between this check and the
+  tool's own HTTP client connecting), and HTTP redirect-chain revalidation remains a separate,
+  still-open gap requiring runtime visibility into the tool's actual HTTP client -- see
+  `docs/security-model.md` finding #10 for the full writeup, including scoped confirmation (each PR/
+  issue actually read via `gh pr view`/`gh issue view`, not assumed) against
+  [microsoft/autogen#7706](https://github.com/microsoft/autogen/pull/7706) (**partially closed** --
+  this fixes the same resolve-and-check-private-ranges half of that PR, but not its other half,
+  the redirect-guard / `follow_redirects=False` revalidation, which is the still-open
+  redirect-chain gap above) and
+  [crewAIInc/crewai#6504](https://github.com/crewAIInc/crewai/issues/6504) (**partially closed, and
+  only one of its two reported vulnerabilities** -- narrows vulnerability 1's DNS-rebinding TOCTOU
+  window (catches the static case, not the actual rebinding race) and does not address vulnerability
+  2 (MCP tool wrappers bypassing SSRF validation entirely) at all, which is an integration-
+  completeness question, not a classifier-coverage gap).
 - `toolgovern-cli` (0.1.5): `--json` flag on `validate`, `audit`, and `init` -- emits a single
   structured `{ ok, command, data | error }` JSON object on stdout instead of human-formatted
   text, so another program (an AI agent invoking the CLI programmatically, a script piping into

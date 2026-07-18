@@ -7,8 +7,18 @@ current rule set -- it is not a guarantee the call is safe.
 
 This is a genuine Python port of the ``toolgovern`` npm package
 (https://github.com/RudrenduPaul/toolgovern), not a wrapper around the Node binary. It ships the
-same 34-rule classifier (TG01-TG05), the same default-deny scope-inheritance model, and the same
+same 35-rule classifier (TG01-TG05), the same default-deny scope-inheritance model, and the same
 signed local audit trail (unkeyed sha256 by default, optional hmac-sha256 keyed signing).
+
+One deliberate divergence from the TS original: TG03's DNS-resolution check
+(``TG03-dns-resolves-private``) runs as an ordinary synchronous member of the one ``classify()``
+rule registry here, because ``govern_tool()`` is synchronous end-to-end in this port and
+``socket.getaddrinfo()`` is itself a blocking call -- no separate async entry point was needed.
+The TS package instead keeps this specific rule in a separate ``classifyAsync()``-only registry,
+since Node's DNS resolution is Promise-based and the TS rule registry stays at its pre-existing
+34-rule count for that reason. Same check, same failure-closed behavior, different plumbing
+dictated by each language's own concurrency model -- see ``docs/security-model.md`` for the full
+writeup.
 """
 
 from __future__ import annotations

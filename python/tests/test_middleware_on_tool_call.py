@@ -301,3 +301,42 @@ class TestOnToolResult:
         )
         result = gated.execute({"command": "ls"})
         assert result["error"] == "boom"
+
+
+class TestDnsResolutionThroughGovernTool:
+    """TG03-dns-resolves-private exercised through the real govern_tool() call chain, against the
+    real OS resolver (not mocked) -- proves the fix is actually wired into the classify() call
+    govern_tool() makes, not just correct in isolation. Python's govern_tool() is synchronous
+    end-to-end (see on_tool_call.py's module docstring), so no separate async entry point was
+    needed here, unlike the TypeScript port's classifyAsync()."""
+
+    def _http_tool(self, calls=None):
+        def execute(args):
+            if calls is not None:
+                calls.append(args)
+            return {"ok": True, "host": args.get("host")}
+
+        return ToolDefinition(name="http.get", execute=execute)
+
+    def test_denies_a_call_whose_hostname_resolves_to_loopback(self):
+        calls = []
+        tool = self._http_tool(calls)
+        gated = govern_tool(
+            tool, GovernToolOptions(scope=ScopeDeclaration(network=["other.example"]))
+        )
+        with pytest.raises(ToolGovernDenialError) as exc_info:
+            gated.execute({"host": "localhost"})
+        assert "TG03-dns-resolves-private" in str(exc_info.value)
+        assert calls == []
+
+    def test_the_denial_carries_the_dns_resolves_private_rule_id_in_fired_rules(self):
+        tool = self._http_tool()
+        gated = govern_tool(
+            tool, GovernToolOptions(scope=ScopeDeclaration(network=["other.example"]))
+        )
+        try:
+            gated.execute({"host": "localhost"})
+            pytest.fail("expected govern_tool to raise for a hostname resolving to loopback")
+        except ToolGovernDenialError as error:
+            rule_ids = [r.rule_id for r in error.decision_info.fired_rules]
+            assert "TG03-dns-resolves-private" in rule_ids

@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest';
-import { networkEgressRules } from '../../src/classifier/network-egress.js';
-import type { RuleContext, ScopeDeclaration } from '../../src/types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:dns', () => ({
+  promises: {
+    lookup: vi.fn(),
+  },
+}));
+
+import { promises as mockedDns } from 'node:dns';
+import {
+  networkEgressAsyncRules,
+  networkEgressRules,
+} from '../../src/classifier/network-egress.js';
+import type { RuleContext, RuleMatch, ScopeDeclaration } from '../../src/types.js';
+
+const mockedLookup = vi.mocked(mockedDns.lookup);
 
 function ctx(args: Record<string, unknown>, network: ScopeDeclaration['network']): RuleContext {
   return {
@@ -221,5 +234,87 @@ describe('TG03 undeclared network egress', () => {
     for (const rule of networkEgressRules) {
       expect(rule.category).toBe('TG03');
     }
+  });
+
+  describe('TG03-dns-resolves-private (async DNS-resolution check)', () => {
+    beforeEach(() => {
+      mockedLookup.mockReset();
+    });
+
+    function evaluateDns(
+      host: string,
+      network: ScopeDeclaration['network'],
+    ): Promise<RuleMatch | null> {
+      const rule = networkEgressAsyncRules.find((r) => r.id === 'TG03-dns-resolves-private');
+      if (!rule) throw new Error('No such async rule: TG03-dns-resolves-private');
+      return rule.evaluateAsync(ctx({ host }, network));
+    }
+
+    it('denies a hostname that resolves to a loopback address', async () => {
+      mockedLookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+      const result = await evaluateDns('internal-alias.attacker.io', ['other.example']);
+      expect(result?.decision).toBe('deny');
+      expect(result?.ruleId).toBe('TG03-dns-resolves-private');
+      expect(result?.matchedArgument).toBe('internal-alias.attacker.io');
+    });
+
+    it('denies a hostname that resolves to the cloud-metadata address', async () => {
+      mockedLookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }] as never);
+      const result = await evaluateDns('metadata-lookalike.attacker.io', ['other.example']);
+      expect(result?.decision).toBe('deny');
+      expect(result?.reason).toMatch(/169\.254\.169\.254/);
+    });
+
+    it('denies a hostname whose ONE of several resolved addresses is private', async () => {
+      mockedLookup.mockResolvedValue([
+        { address: '203.0.113.5', family: 4 },
+        { address: '10.0.0.5', family: 4 },
+      ] as never);
+      const result = await evaluateDns('multi-homed.attacker.io', ['other.example']);
+      expect(result?.decision).toBe('deny');
+    });
+
+    it('allows a hostname that resolves only to public addresses', async () => {
+      mockedLookup.mockResolvedValue([{ address: '203.0.113.5', family: 4 }] as never);
+      const result = await evaluateDns('public.example', ['other.example']);
+      expect(result).toBeNull();
+    });
+
+    it('fails CLOSED (require-approval, never allow) when DNS resolution rejects', async () => {
+      mockedLookup.mockRejectedValue(new Error('ENOTFOUND'));
+      const result = await evaluateDns('nonexistent.invalid', ['other.example']);
+      expect(result?.decision).toBe('require-approval');
+      expect(result?.reason).toMatch(/failed/i);
+    });
+
+    it('fails CLOSED when DNS resolution resolves to an empty address list', async () => {
+      mockedLookup.mockResolvedValue([] as never);
+      const result = await evaluateDns('empty-answer.example', ['other.example']);
+      expect(result?.decision).toBe('require-approval');
+    });
+
+    it("does not evaluate (and does not call DNS) for a raw IP literal argument -- that is TG03-raw-ip-literal's job", async () => {
+      const result = await evaluateDns('127.0.0.1', ['other.example']);
+      expect(result).toBeNull();
+      expect(mockedLookup).not.toHaveBeenCalled();
+    });
+
+    it('honors an explicit allowlist entry for this exact hostname even if it resolves private', async () => {
+      mockedLookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+      const result = await evaluateDns('internal.example', ['internal.example']);
+      expect(result).toBeNull();
+    });
+
+    it('does not fire when scope.network is unrestricted (true) and the resolved address is public', async () => {
+      mockedLookup.mockResolvedValue([{ address: '203.0.113.5', family: 4 }] as never);
+      const result = await evaluateDns('public.example', true);
+      expect(result).toBeNull();
+    });
+
+    it('STILL denies under an unrestricted (true) network scope when the resolved address is private -- mirrors TG03-raw-ip-literal\'s "never approvable via blanket grant" rule', async () => {
+      mockedLookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }] as never);
+      const result = await evaluateDns('metadata-lookalike.attacker.io', true);
+      expect(result?.decision).toBe('deny');
+    });
   });
 });

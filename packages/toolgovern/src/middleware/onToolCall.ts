@@ -19,7 +19,7 @@ import type {
   RuleMatch,
   ScopeDeclaration,
 } from '../types.js';
-import { classify } from '../classifier/index.js';
+import { classifyAsync } from '../classifier/index.js';
 import type { ScopeRegistry } from '../scoping/inheritance-enforcer.js';
 import { isValidAgentId } from '../scoping/scope-declaration.js';
 import type { TraceWriter } from '../trace/trace-writer.js';
@@ -224,7 +224,13 @@ export function governTool<Args extends Record<string, unknown>, Result>(
         scopeRegistry: options.scopeRegistry,
       };
 
-      const classifierResult = classify(ruleContext, { disabledRules, downgradeToApproval });
+      // classifyAsync (not the synchronous classify()) so TG03's DNS-resolution check
+      // (TG03-dns-resolves-private) actually runs -- execute() is already async end-to-end, so
+      // there is no reason for this call path to silently skip an async-only rule.
+      const classifierResult = await classifyAsync(ruleContext, {
+        disabledRules,
+        downgradeToApproval,
+      });
       let decision: Decision = classifierResult.decision;
       const firedRules = classifierResult.firedRules;
 

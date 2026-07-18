@@ -9,9 +9,10 @@ it executes, not after something already went wrong.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 toolgovern ships two independent, equally first-class packages -- pick whichever fits your
-toolchain, or install both. Neither is deprecated in favor of the other; they read the same
-34-rule classifier, apply the same default-deny scope-inheritance model, and write the same
-signed trace format.
+toolchain, or install both. Neither is deprecated in favor of the other; they run the same 34-rule
+synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
+-- see below), apply the same default-deny scope-inheritance model, and write the same signed
+trace format.
 
 ```bash
 # npm -- JavaScript/TypeScript core library + CLI
@@ -140,10 +141,30 @@ actually has, checked on every call it makes, not just validated once when it sp
 | TG04 Credential/Secret Access          | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope                                                                                  | 6     |
 | TG05 Cross-Agent Privilege Inheritance | A sub-agent call outside what its coordinator actually granted, a zero-capability sub-agent attempting any call, a coordinator's own scope shrinking mid-session                                     | 6     |
 
-34 rules total. Two more categories aren't in v0.1: TG06 (high-risk tool combinations across a
-session) and TG07 (retrying a denied call with modified arguments) both need cross-call session
-state that this classifier doesn't yet keep, since it evaluates one call at a time with no memory
-of prior calls. That's a stated limitation, not a hidden one.
+34 rules total, all synchronous, all reachable via `classify()`. Two more categories aren't in
+v0.1: TG06 (high-risk tool combinations across a session) and TG07 (retrying a denied call with
+modified arguments) both need cross-call session state that this classifier doesn't yet keep,
+since it evaluates one call at a time with no memory of prior calls. That's a stated limitation,
+not a hidden one.
+
+**A 35th check, async-only: DNS resolution of hostname arguments (TG03).** A raw IP literal
+argument (`127.0.0.1`, `169.254.169.254`, ...) targeting loopback/RFC1918/link-local/cloud-metadata
+space is already denied by the 34-rule table above. What that table's `TG03-raw-ip-literal` rule
+cannot catch is a **hostname** argument that merely _resolves_ to one of those same addresses
+(`internal-alias.attacker.io -> 127.0.0.1`) -- a DNS lookup is inherently I/O, not something a
+synchronous rule can do. `TG03-dns-resolves-private` closes that gap: it resolves the hostname via
+`dns.promises.lookup()` (honoring `/etc/hosts`) and applies the exact same private/metadata range
+check to every resolved address, failing closed (`require-approval`, never `allow`) if resolution
+itself fails or times out. Because this needs `await`, it lives in a separate `classifyAsync()`
+entry point (`governTool()`'s already-`async` `execute()` calls this instead of the synchronous
+`classify()`), not the 34-rule table above -- `classify()` alone will not run it. See
+[`docs/security-model.md`](./docs/security-model.md) (finding #10) for the full writeup, including
+the honestly-disclosed limits: this narrows but does not eliminate DNS-rebinding TOCTOU, and
+redirect-chain revalidation is a separate, still-open gap this check does not attempt. The Python
+package folds the equivalent check directly into its one synchronous `classify()` instead (35
+rules total there), since `govern_tool()` is synchronous end to end in that port and
+`socket.getaddrinfo()` is itself a blocking call -- see
+[`python/README.md`](./python/README.md) for that side's rule count.
 
 A gate decision of `allow` means the call was checked against this rule set and nothing fired. It
 is not a claim that the call is safe. The rule set is finite, and `docs/security-model.md`
@@ -199,10 +220,12 @@ you actually import from.
 
 **Classifier**
 
-| Export         | Signature                                                           | What it does                                                                        |
-| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `classify`     | `(ctx: RuleContext, options?: ClassifyOptions) => ClassifierResult` | Runs the 34-rule classifier directly against a call context.                        |
-| `ruleRegistry` | `Rule[]`                                                            | The full list of registered rules -- what `governTool()` checks every call against. |
+| Export              | Signature                                                                    | What it does                                                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `classify`          | `(ctx: RuleContext, options?: ClassifyOptions) => ClassifierResult`          | Runs the 34-rule synchronous classifier directly against a call context. Does not run `TG03-dns-resolves-private` (see below). |
+| `classifyAsync`     | `(ctx: RuleContext, options?: ClassifyOptions) => Promise<ClassifierResult>` | What `governTool()` actually calls: everything `classify()` does, plus the async TG03 DNS-resolution check.                    |
+| `ruleRegistry`      | `Rule[]`                                                                     | The 34 synchronous rules -- what `classify()` checks every call against.                                                       |
+| `asyncRuleRegistry` | `AsyncRule[]`                                                                | The async-only rule(s) -- currently just `TG03-dns-resolves-private` -- `classifyAsync()` additionally checks.                 |
 
 **Other**
 
@@ -211,7 +234,7 @@ you actually import from.
 | `IdempotencyCache<Result>` | `constructor(options?: IdempotencyOptions)` | Dedupes retried calls with identical arguments within a window. |
 
 Types: `Decision`, `AgentIdSource`, `RuleCategory`, `ScopeDeclaration`, `Policy`, `RuleOverrides`,
-`RuleContext`, `RuleMatch`, `Rule`, `ClassifierResult`, `TraceEntry`, `TraceEntryInput`,
+`RuleContext`, `RuleMatch`, `Rule`, `AsyncRule`, `ClassifierResult`, `TraceEntry`, `TraceEntryInput`,
 `AgentScopeRecord`, `GovernToolOptions`, `GateDecisionInfo`, `ApprovalHandler`, `ApprovalOutcome`,
 `ToolDefinition`.
 

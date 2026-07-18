@@ -10,8 +10,10 @@ allowlist).
 from __future__ import annotations
 
 import re
+import socket
+import threading
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..shared.paths import host_matches_allowed, is_ip_literal, is_private_or_metadata_target
 from ..types import RuleContext, RuleMatch
@@ -172,6 +174,104 @@ def _known_paste_relay_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
     )
 
 
+_DNS_LOOKUP_TIMEOUT_SECONDS = 3.0
+
+
+def _resolve_host_addresses(host: str) -> List[str]:
+    """Resolves every address a hostname maps to via the OS resolver (``socket.getaddrinfo``,
+    which also honors ``/etc/hosts`` -- so an operator-added ``127.0.0.1  internal-alias`` entry
+    is caught exactly like a real DNS A/AAAA record would be), racing it against a hard timeout
+    in a worker thread so a hung/unresponsive resolver cannot stall the call indefinitely.
+
+    ``socket.getaddrinfo()`` has no built-in timeout of its own and cannot be cancelled once
+    started, so this uses the same thread + ``join(timeout)`` idiom
+    ``middleware/on_tool_call.py``'s ``_resolve_approval`` already uses for approval timeouts,
+    rather than inventing a second timeout mechanism.
+
+    Raises on failure or timeout -- never returns a value implying "safe, nothing found" for
+    those cases. Callers must treat an exception as "unknown, fail closed."
+    """
+    result_box: Dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            result_box["infos"] = socket.getaddrinfo(host, None)
+        except Exception as error:  # noqa: BLE001 -- re-raised on the calling thread below
+            result_box["error"] = error
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(_DNS_LOOKUP_TIMEOUT_SECONDS)
+    if thread.is_alive():
+        raise TimeoutError(
+            f'DNS lookup for "{host}" timed out after {_DNS_LOOKUP_TIMEOUT_SECONDS}s'
+        )
+    if "error" in result_box:
+        raise result_box["error"]  # type: ignore[misc]
+    infos = result_box.get("infos", [])
+    return [info[4][0] for info in infos]
+
+
+def _dns_resolves_private_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
+    host = extract_candidate_host(ctx.args)
+    # A raw IP literal is already fully handled by TG03-raw-ip-literal; resolving it would be a
+    # no-op (or, for a bare decimal-encoded literal, actively wrong) -- this rule only concerns
+    # itself with actual hostnames.
+    if not host or is_ip_literal(host):
+        return None
+    # Mirrors TG03-raw-ip-literal's own carve-out: an explicit, exact allowlist entry for this
+    # hostname is a deliberate, specific operator decision, honored even if it turns out to
+    # resolve to a private address.
+    if isinstance(ctx.scope.network, (list, tuple)) and host in ctx.scope.network:
+        return None
+
+    try:
+        addresses = _resolve_host_addresses(host)
+    except Exception as error:
+        # Fail CLOSED on a DNS-resolution failure (NXDOMAIN, timeout, resolver error, whatever the
+        # cause) -- an unresolvable host is never treated as "safe to allow." require-approval
+        # (not an automatic allow) matches TG03-raw-ip-literal's own use of require-approval for
+        # anything not affirmatively known to be safe.
+        return _match(
+            "TG03-dns-resolves-private",
+            "require-approval",
+            f'DNS resolution for host "{host}" failed ({error}); failing closed rather than '
+            "assuming an unresolvable host is safe to reach.",
+            host,
+        )
+
+    if not addresses:
+        # Some resolvers return an empty record set rather than raising for an unknown name --
+        # treated identically to a resolution failure above, for the same fail-closed reason.
+        return _match(
+            "TG03-dns-resolves-private",
+            "require-approval",
+            f'DNS resolution for host "{host}" returned no addresses; failing closed rather than '
+            "assuming an unresolvable host is safe to reach.",
+            host,
+        )
+
+    private_address = next((a for a in addresses if is_private_or_metadata_target(a)), None)
+    if not private_address:
+        return None
+
+    return _match(
+        "TG03-dns-resolves-private",
+        "deny",
+        f'Host "{host}" resolves via DNS to loopback/private/cloud-metadata address '
+        f'"{private_address}" -- denied even though the call argument is a hostname, not a raw '
+        "IP literal. Residual limitation, disclosed rather than hidden: this is a "
+        "resolve-then-check at classification time, not a connection-time guarantee -- it "
+        "narrows but does not eliminate DNS-rebinding TOCTOU, since an attacker who controls "
+        "this name's DNS answer can still swap it to a private/internal address after this "
+        "check runs and before the tool's own HTTP client actually connects. True TOCTOU-proof "
+        "protection would require the tool's own HTTP client to connect to this exact "
+        "resolved+validated address (DNS pinning), which a pre-execution argument gate like "
+        "govern_tool() cannot enforce -- see docs/security-model.md.",
+        host,
+    )
+
+
 network_egress_rules: List[_Rule] = [
     _Rule("TG03-network-disabled", _CATEGORY, "Any network egress attempted while the agent has no network scope at all.", _network_disabled_evaluate),
     _Rule("TG03-host-not-in-scope", _CATEGORY, "The target host is not present in the declared network allowlist.", _host_not_in_scope_evaluate),
@@ -179,4 +279,11 @@ network_egress_rules: List[_Rule] = [
     _Rule("TG03-non-standard-port", _CATEGORY, "Connection to a non-standard port on a host outside the allowlist.", _non_standard_port_evaluate),
     _Rule("TG03-dns-exfil-pattern", _CATEGORY, "Suspiciously long, high-entropy subdomain label -- a common DNS-exfil shape.", _dns_exfil_pattern_evaluate),
     _Rule("TG03-known-paste-relay", _CATEGORY, "Target host matches a known paste/relay/tunnel service commonly used for exfil.", _known_paste_relay_evaluate),
+    _Rule(
+        "TG03-dns-resolves-private",
+        _CATEGORY,
+        "A hostname argument that resolves via DNS to a loopback/RFC1918/link-local/cloud-metadata "
+        "address, even though the argument itself is a domain name, not a raw IP literal.",
+        _dns_resolves_private_evaluate,
+    ),
 ]

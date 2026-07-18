@@ -1,6 +1,9 @@
 """TG03 network-egress classifier tests. Ported in spirit from
-packages/toolgovern/test/classifier/network-egress.test.ts -- covers all 6 TG03 rules.
+packages/toolgovern/test/classifier/network-egress.test.ts -- covers all 7 TG03 rules.
 """
+
+import socket
+from unittest.mock import patch
 
 from toolgovern import ScopeDeclaration
 from toolgovern.classifier.network_egress import network_egress_rules
@@ -171,6 +174,150 @@ class TestKnownPasteRelay:
         assert "TG03-known-paste-relay" not in ids
 
 
-def test_rule_registry_has_six_tg03_rules():
-    assert len(network_egress_rules) == 6
-    assert len({r.id for r in network_egress_rules}) == 6
+class TestDnsResolvesPrivate:
+    """TG03-dns-resolves-private: a hostname that RESOLVES (via socket.getaddrinfo) to a
+    loopback/private/link-local/cloud-metadata address must be caught, not just a raw IP literal
+    argument. Uses unittest.mock.patch to control what the resolver returns deterministically --
+    there is no real hostname anyone can rely on always resolving to 169.254.169.254."""
+
+    def _addrinfo(self, *addresses):
+        # Minimal shape of what socket.getaddrinfo returns: a list of
+        # (family, type, proto, canonname, sockaddr) tuples where sockaddr[0] is the address.
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0)) for address in addresses]
+
+    def test_denies_a_hostname_that_resolves_to_loopback(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "internal-alias.attacker.io"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("127.0.0.1")):
+            decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG03-dns-resolves-private" in ids
+
+    def test_denies_a_hostname_that_resolves_to_the_cloud_metadata_address(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "metadata-lookalike.attacker.io"},
+            scope=ScopeDeclaration(network=["other.example"]),
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("169.254.169.254")):
+            decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG03-dns-resolves-private" in ids
+
+    def test_denies_when_only_one_of_several_resolved_addresses_is_private(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "multi-homed.attacker.io"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("203.0.113.5", "10.0.0.5")):
+            decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG03-dns-resolves-private" in ids
+
+    def test_allows_a_hostname_that_resolves_only_to_public_addresses(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "public.example"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("203.0.113.5")):
+            decision, ids = _fired(ctx)
+        assert "TG03-dns-resolves-private" not in ids
+
+    def test_fails_closed_require_approval_when_dns_resolution_raises(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "nonexistent.invalid"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+            match = next(
+                r for r in network_egress_rules if r.id == "TG03-dns-resolves-private"
+            ).evaluate(ctx)
+        assert match is not None
+        assert match.decision == "require-approval"
+        assert "failed" in match.reason.lower()
+
+    def test_fails_closed_when_dns_resolution_times_out(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "slow-resolver.example"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+
+        def _hang(*_args, **_kwargs):
+            import time
+
+            time.sleep(10)
+            return self._addrinfo("203.0.113.5")
+
+        rule = next(r for r in network_egress_rules if r.id == "TG03-dns-resolves-private")
+        with patch(
+            "toolgovern.classifier.network_egress._DNS_LOOKUP_TIMEOUT_SECONDS", 0.05
+        ), patch("socket.getaddrinfo", side_effect=_hang):
+            match = rule.evaluate(ctx)
+        assert match is not None
+        assert match.decision == "require-approval"
+        assert "timed out" in match.reason.lower() or "failed" in match.reason.lower()
+
+    def test_fails_closed_when_dns_resolution_returns_no_addresses(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "empty-answer.example"}, scope=ScopeDeclaration(network=["other.example"])
+        )
+        with patch("socket.getaddrinfo", return_value=[]):
+            result = classify(ctx)
+        match = next(r for r in result.fired_rules if r.rule_id == "TG03-dns-resolves-private")
+        assert match.decision == "require-approval"
+
+    def test_does_not_call_dns_for_a_raw_ip_literal_argument(self, ctx_factory):
+        # TG03-raw-ip-literal already owns raw IP literals; the DNS rule should not even attempt
+        # a lookup for one.
+        ctx = ctx_factory({"host": "127.0.0.1"}, scope=ScopeDeclaration(network=["other.example"]))
+        with patch("socket.getaddrinfo") as mocked_getaddrinfo:
+            rule = next(r for r in network_egress_rules if r.id == "TG03-dns-resolves-private")
+            result = rule.evaluate(ctx)
+        assert result is None
+        mocked_getaddrinfo.assert_not_called()
+
+    def test_honors_an_explicit_allowlist_entry_even_if_it_resolves_private(self, ctx_factory):
+        ctx = ctx_factory(
+            {"host": "internal.example"}, scope=ScopeDeclaration(network=["internal.example"])
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("127.0.0.1")):
+            rule = next(r for r in network_egress_rules if r.id == "TG03-dns-resolves-private")
+            result = rule.evaluate(ctx)
+        assert result is None
+
+    def test_still_denies_under_unrestricted_true_network_scope_when_resolved_private(
+        self, ctx_factory
+    ):
+        ctx = ctx_factory(
+            {"host": "metadata-lookalike.attacker.io"}, scope=ScopeDeclaration(network=True)
+        )
+        with patch("socket.getaddrinfo", return_value=self._addrinfo("169.254.169.254")):
+            decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG03-dns-resolves-private" in ids
+
+
+class TestDnsResolvesPrivateRealResolver:
+    """The same rule exercised against the REAL OS resolver (socket.getaddrinfo, not mocked) --
+    localhost is the one hostname genuinely safe to assert on across any CI/sandbox environment
+    with no network access at all, since every POSIX /etc/hosts maps it to 127.0.0.1 and
+    getaddrinfo honors /etc/hosts before any network round-trip."""
+
+    def test_denies_localhost_via_a_real_hosts_file_backed_lookup(self, ctx_factory):
+        ctx = ctx_factory({"host": "localhost"}, scope=ScopeDeclaration(network=["other.example"]))
+        decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG03-dns-resolves-private" in ids
+
+    def test_fails_closed_for_a_hostname_the_real_resolver_cannot_resolve(self, ctx_factory):
+        # RFC 2606 reserves the .invalid TLD specifically so it is guaranteed to never resolve.
+        ctx = ctx_factory(
+            {"host": "this-host-genuinely-does-not-exist.invalid"},
+            scope=ScopeDeclaration(network=["other.example"]),
+        )
+        match = next(
+            r for r in network_egress_rules if r.id == "TG03-dns-resolves-private"
+        ).evaluate(ctx)
+        assert match is not None
+        assert match.decision == "require-approval"
+
+
+def test_rule_registry_has_seven_tg03_rules():
+    assert len(network_egress_rules) == 7
+    assert len({r.id for r in network_egress_rules}) == 7

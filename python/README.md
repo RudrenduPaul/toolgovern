@@ -8,7 +8,7 @@ it executes, not after something already went wrong.
 
 This is the genuine Python port of [`toolgovern`](https://www.npmjs.com/package/toolgovern) and
 [`toolgovern-cli`](https://www.npmjs.com/package/toolgovern-cli) -- not a wrapper around the Node
-binary. It ships the same 34-rule classifier, the same default-deny scope-inheritance model, and
+binary. It ships the same 35-rule classifier, the same default-deny scope-inheritance model, and
 the same signed local audit trail. The complementary JS/TS distribution installs the same way on
 the npm side: `npm install toolgovern` for the library, `npm install --save-dev toolgovern-cli`
 for the CLI -- see the [project README](https://github.com/RudrenduPaul/toolgovern#readme) for
@@ -27,7 +27,7 @@ agent down, and no record of what it actually tried to do once it's running.
 
 toolgovern is a runtime governance layer that sits between the agent and its real tool executor --
 not another prompt-engineering mitigation. `govern_tool()` wraps any `ToolDefinition(name,
-execute)` and runs every call through the same pipeline before `execute()` fires: a 34-rule
+execute)` and runs every call through the same pipeline before `execute()` fires: a 35-rule
 classifier that inspects the call's actual arguments across shell risk, filesystem scope, network
 egress, credential access, and cross-agent privilege inheritance; an intersection-only scope
 registry, so a sub-agent's effective access is always the intersection of what it requests and what
@@ -81,16 +81,26 @@ gated_shell = govern_tool(shell_tool, GovernToolOptions.from_policy(policy))
 
 ## What it does
 
-The classifier evaluates a tool call's actual arguments, not the tool's name, against 34 rules
+The classifier evaluates a tool call's actual arguments, not the tool's name, against 35 rules
 across 5 categories:
 
 | Category | Covers                            | Rules |
 | -------- | --------------------------------- | ----- |
 | TG01     | Shell/process execution risk      | 9     |
 | TG02     | Filesystem scope escalation       | 7     |
-| TG03     | Undeclared network egress         | 6     |
+| TG03     | Undeclared network egress         | 7     |
 | TG04     | Credential/secret access          | 6     |
 | TG05     | Cross-agent privilege inheritance | 6     |
+
+TG03's 7th rule, `TG03-dns-resolves-private`, resolves a hostname argument via
+`socket.getaddrinfo()` (honoring `/etc/hosts`) and applies the same loopback/RFC1918/link-local/
+cloud-metadata deny logic already used for raw IP literals to every resolved address -- so a
+hostname that merely _resolves to_ `127.0.0.1` or a cloud-metadata address is caught, not just a
+raw IP literal argument. DNS-resolution failure or timeout fails closed (`require-approval`),
+never allow. This narrows, but does not eliminate, DNS-rebinding TOCTOU: an attacker who controls
+the hostname's DNS answer can still swap it after this check runs and before the tool's own HTTP
+client connects -- see [`docs/security-model.md`](../docs/security-model.md) for the full, honest
+writeup of that residual limitation and the still-open redirect-chain-revalidation gap.
 
 `govern_tool()` wraps any `ToolDefinition(name, execute)` and returns a version that runs every
 call through this pipeline before `execute()` runs: resolve the effective scope, classify the

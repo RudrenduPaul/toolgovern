@@ -293,19 +293,146 @@ correctly recording `agent_id_source: 'explicit'` vs. `'fallback'` for the corre
 paths, alongside confirmation that existing valid-identity flows (a normal explicit `agentId`, and
 the no-`agentId`-supplied default path) are unaffected.
 
+## Fixed (added in a later pass)
+
+### 10. TG03 network-egress: hostname arguments that resolve to a private/loopback/metadata address
+
+**The gap.** TG03's `raw-ip-literal` rule (`packages/toolgovern/src/classifier/network-egress.ts`
+/ `python/src/toolgovern/classifier/network_egress.py`) already denies a raw IP literal argument
+(`127.0.0.1`, `169.254.169.254`, IPv6 equivalents, decimal-encoded IPv4, ...) that targets
+loopback/RFC1918/link-local/cloud-metadata space. What it did **not** catch: a **hostname**
+argument that merely _resolves_ to one of those same addresses. `internal-alias.attacker.io ->
+127.0.0.1` (an attacker-controlled DNS record, or an innocuous local `/etc/hosts` alias) sailed
+through undetected, because the classifier only ever inspected the literal argument string, never
+performed a DNS lookup. This is exactly the SSRF/DNS-rebinding shape both
+[microsoft/autogen#7706](https://github.com/microsoft/autogen/pull/7706) (hoangperry's AutoGen SSRF
+fix, which explicitly resolves a hostname and checks the resolved IP before allowing an outbound
+call) and [crewAIInc/crewai#6504](https://github.com/crewAIInc/crewai/issues/6504) (ashusnapx's
+crewAI DNS-rebinding report) describe.
+
+**The fix.**
+
+- **TypeScript.** A new rule, `TG03-dns-resolves-private`, resolves a candidate hostname via
+  `dns.promises.lookup(host, { all: true })` (which honors `/etc/hosts`, same as a real HTTP
+  client's own resolution would) and applies the exact same
+  `isPrivateOrMetadataTarget()` range check already used for raw IP literals to every resolved
+  address. Because DNS resolution is inherently asynchronous in Node, this rule lives in a new,
+  separate `AsyncRule` shape (`types.ts`) and a new `networkEgressAsyncRules` registry
+  (`network-egress.ts`), evaluated by a new `classifyAsync()` (`classifier/index.ts`) rather than
+  the existing synchronous `classify()`. `governTool()`'s `execute()` -- already `async` end to
+  end -- now calls `classifyAsync()` instead of `classify()`, so this check actually runs on every
+  gated call rather than silently never firing. The pre-existing, synchronous `classify()` is
+  unchanged and still available for callers with no event loop to await from; it simply does not
+  run this one DNS-dependent rule, which is now stated plainly in its own doc comment rather than
+  left as a surprise.
+- **Python.** The equivalent rule resolves via `socket.getaddrinfo()` (which also honors
+  `/etc/hosts`). Because `govern_tool()` is fully synchronous end to end in this port (a
+  deliberate, pre-existing design choice -- see `on_tool_call.py`'s module docstring) and
+  `socket.getaddrinfo()` is itself a blocking call, no separate async entry point was needed: the
+  rule is an ordinary member of the single `rule_registry` / `classify()`, bringing the Python
+  rule count to 35 (34 + this rule) against the TS package's 34-rule synchronous registry plus 1
+  async-only rule. Same check, same failure-closed behavior, different plumbing dictated by each
+  language's own concurrency model -- this asymmetry is intentional, not an oversight, and is
+  called out explicitly rather than glossed over as "the same 34/35 rules on both sides."
+- **Failure-closed on resolution failure, on both sides.** A DNS lookup that fails (NXDOMAIN,
+  resolver error, timeout) or resolves to an empty address list returns `require-approval`, never
+  an implicit `allow` -- an unresolvable host is never treated as evidence of safety. A hard
+  timeout (3s on both sides: `Promise.race` against `setTimeout` in TS, a daemon
+  `threading.Thread.join(timeout)` in Python, the same idiom `on_tool_call.py`'s own approval
+  timeout already uses) stops a hung/unresponsive resolver from stalling a gated call
+  indefinitely.
+
+**What this explicitly does NOT fix -- disclosed, not hidden:**
+
+- **DNS-rebinding TOCTOU is narrowed, not eliminated.** This is a resolve-then-check at
+  classification time, not a connection-time guarantee. An attacker who controls the target
+  hostname's DNS answer can still change what it resolves to _after_ this check runs and _before_
+  the tool's own HTTP client actually opens the connection -- classic TOCTOU. Fully closing that
+  gap requires the tool's own HTTP client to connect to the exact address this check
+  resolved-and-validated (DNS pinning at the connection layer), which `governTool()` /
+  `govern_tool()` -- a pre-execution _argument_ gate, confirmed by reading
+  `onToolCall.ts` / `on_tool_call.py` end to end -- has no mechanism to enforce. It evaluates
+  arguments before a call; it does not sit inside, or control, the HTTP client that eventually
+  makes the real connection.
+- **Redirect-chain revalidation is a separate, still-open gap, not attempted here.** Re-checking
+  each hop of an HTTP redirect chain (a request to an allowed host that 302s to
+  `http://169.254.169.254/`) requires runtime visibility into the tool's actual HTTP
+  client -- which redirects it followed, to which URLs -- that a pre-execution argument classifier
+  fundamentally does not have. `governTool()` sees the arguments a call was made with, once, before
+  it executes; it has no hook into the HTTP client's own redirect-following logic afterward.
+  Building real coverage for this needs a different integration shape entirely: a fetch-wrapper (or
+  HTTP-client middleware) the tool opts into, which re-invokes the classifier -- or at minimum the
+  raw-IP/private-target check -- against each redirect target as the client follows it. That is
+  new, separate surface area, not a variant of the existing argument-gate model, and is not
+  attempted in this pass.
+
+**Proof.** `packages/toolgovern/test/classifier/network-egress.test.ts` (`TG03-dns-resolves-private
+(async DNS-resolution check)`, mocked `node:dns`) covers: a hostname resolving to loopback, to the
+cloud-metadata address, to one-of-several-private-addresses, to a public-only address (no fire),
+resolution failure and empty-result-set (both `require-approval`), skipping DNS entirely for a raw
+IP literal argument, the explicit-allowlist carve-out, and the "never approvable via a blanket
+`network: true` grant" case mirroring `TG03-raw-ip-literal`'s own rule. A separate
+`network-egress-dns-real.test.ts` exercises the same rule against the real, unmocked OS resolver:
+`localhost` (denied, via a genuine `/etc/hosts`-backed lookup) and a guaranteed-unresolvable
+`.invalid`-TLD hostname (RFC 2606) failing closed. `classifier/index.test.ts` proves `classifyAsync()`
+agrees with `classify()` on every synchronous case and additionally catches the DNS-resolving case
+that `classify()` cannot. `middleware/onToolCall.test.ts` proves the fix is wired through the real
+`governTool()` call chain end to end (not just correct in isolation), again against the real
+resolver. On the Python side, `test_classifier_network_egress.py` mirrors every mocked case via
+`unittest.mock.patch("socket.getaddrinfo", ...)` plus a real-resolver `localhost`/`.invalid` pair,
+`test_classifier_index.py` proves `classify()` alone (no async variant needed) catches the
+DNS-resolving case, and `test_middleware_on_tool_call.py` proves `govern_tool()` denies it end to
+end against the real resolver.
+
+**Confirmed against the two issues that motivated this fix** (read via `gh pr view` / `gh issue
+view` before writing this, not assumed from their titles):
+
+- [microsoft/autogen#7706](https://github.com/microsoft/autogen/pull/7706) -- **partially closed.**
+  hoangperry's actual PR body describes two distinct fixes to `fetch_webpage()`: (a) `_validate_url()`
+  resolves the target hostname and blocks RFC1918/loopback/link-local ranges before the request, and
+  (b) switching `httpx`'s `follow_redirects` from `True` to `False` and validating each redirect
+  target before following it (the PR's own test plan explicitly includes "Redirect to private IP ->
+  ValueError (redirect guard)"). `TG03-dns-resolves-private` closes fix (a) -- the same
+  resolve-then-check-against-private-ranges logic, applied at the `governTool()` argument-gate layer
+  instead of inside `fetch_webpage()` itself. It does **not** close fix (b): redirect-chain
+  revalidation is exactly the "genuinely separate, still-open gap" this document already discloses
+  above and in "What this does not cover" -- a pre-execution argument classifier has no visibility
+  into redirects an HTTP client follows after the call it gated. So: half of what this specific PR
+  fixes is closed, half (the redirect guard) is not, and is not claimed to be.
+- [crewAIInc/crewai#6504](https://github.com/crewAIInc/crewai/issues/6504) -- **partially closed,
+  and only for one of its two reported vulnerabilities.** The report (read in full, not just its
+  title) describes two distinct vulnerabilities: **(1) DNS-rebinding TOCTOU** in
+  `safe_get()`/`validate_url()` -- it resolves DNS, checks the IP, returns the URL as a string, and
+  the _subsequent_ `requests.get(url)` call resolves DNS **again**, so the record can change in
+  between; and **(2) MCP tool wrappers bypass SSRF protection entirely** -- arguments (including
+  URLs) passed to MCP servers never go through `validate_url()`/`safe_get()` at all.
+  `TG03-dns-resolves-private` does not close either of these as the report frames them: vulnerability
+  (1) is architecturally the _same_ check-time-vs-connect-time gap this rule itself has (see the
+  residual-limitation disclosure above) -- it catches the static case (a hostname that already
+  resolves private right now) but not the actual rebinding race the report centers on, since
+  `governTool()` cannot pin the resolved address at the tool's own connection layer either.
+  Vulnerability (2) is not addressed at all by this change: it is a report that certain crewAI code
+  paths skip calling their own validator, which is an integration-completeness question (does the
+  host application actually route every tool call, including MCP ones, through `governTool()`?), not
+  a gap in what the classifier checks once it _is_ invoked. toolgovern's existing (pre-dating this
+  pass) nested-argument host extraction already finds a host buried inside a nested MCP tool-call
+  payload -- see `extractCandidateHost()`'s "SSRF via nested MCP tool payloads" tests -- but that is
+  a different, already-shipped capability, not something this fix adds or extends.
+
 ## Summary
 
-| #   | Area                                                                           | Status                                                                                                               |
-| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| 1   | TG01 argument obfuscation (base64, quote-splitting, invisible Unicode, `$IFS`) | Fixed + tested                                                                                                       |
-| 2   | ReDoS in `TG01-rm-rf`                                                          | Fixed + tested                                                                                                       |
-| 3   | Approval handler exception skips trace / leaks raw error                       | Fixed + tested                                                                                                       |
-| 4   | Trace tamper-evidence (unkeyed default vs. attacker who recomputes the hash)   | Documented limitation (pre-existing) + proven with a test + optional HMAC-keyed signing shipped as a real mitigation |
-| 5   | YAML policy-loader RCE risk                                                    | Reviewed, confirmed safe, no change needed                                                                           |
-| 6   | CLI path-argument traversal                                                    | Reviewed, not applicable, no change needed                                                                           |
-| 7   | Filesystem-scope path canonicalization                                         | Documented known limitation, no fix in v0.1                                                                          |
-| 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                            |
-| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope              |
+| #   | Area                                                                           | Status                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | TG01 argument obfuscation (base64, quote-splitting, invisible Unicode, `$IFS`) | Fixed + tested                                                                                                                                 |
+| 2   | ReDoS in `TG01-rm-rf`                                                          | Fixed + tested                                                                                                                                 |
+| 3   | Approval handler exception skips trace / leaks raw error                       | Fixed + tested                                                                                                                                 |
+| 4   | Trace tamper-evidence (unkeyed default vs. attacker who recomputes the hash)   | Documented limitation (pre-existing) + proven with a test + optional HMAC-keyed signing shipped as a real mitigation                           |
+| 5   | YAML policy-loader RCE risk                                                    | Reviewed, confirmed safe, no change needed                                                                                                     |
+| 6   | CLI path-argument traversal                                                    | Reviewed, not applicable, no change needed                                                                                                     |
+| 7   | Filesystem-scope path canonicalization                                         | Documented known limitation, no fix in v0.1                                                                                                    |
+| 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                                                      |
+| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope                                        |
+| 10  | TG03 hostname arguments resolving to a private/loopback/metadata address       | Fixed + tested (both languages); DNS-rebinding TOCTOU narrowed, not eliminated; redirect-chain revalidation remains a separate, still-open gap |
 
 Nothing in this document should be read as "toolgovern makes a gated agent session safe." A gated
 call means it was evaluated against the current rule set and, for the classes of bypass covered
@@ -367,3 +494,21 @@ of this document: disclosed, not silently omitted.
   in-process, pre-execution decision gate -- a function call that returns allow/deny/require-approval
   -- not an isolation executor. It enforces no memory or CPU limits of its own; that is the job of
   whatever executor actually runs the underlying tool.
+
+- **HTTP redirect-chain revalidation.** TG03's DNS-resolution check (see finding #10 above)
+  resolves and validates a call's declared _target_ hostname before the call executes. It does not,
+  and structurally cannot, see or re-validate any redirect a request follows once the tool's own
+  HTTP client is running -- a request to an allowed, validated host that responds with a `302` to
+  `http://169.254.169.254/` completes outside anything `governTool()` observes. Closing this
+  requires runtime visibility into the HTTP client itself (a fetch-wrapper or client middleware the
+  tool opts into, re-checking each redirect hop), a genuinely different integration shape from the
+  pre-execution argument gate this classifier is. Not attempted in this pass; tracked here as an
+  open gap, not silently assumed covered by the DNS-resolution fix above.
+
+- **DNS-rebinding TOCTOU (connection-time DNS pinning).** Related to, but distinct from, the
+  redirect-chain gap above: finding #10's DNS-resolution check narrows the DNS-rebinding attack
+  surface (a hostname that already resolves to a private/metadata address at classification time is
+  now caught) but does not eliminate the race itself -- an attacker who controls the DNS answer can
+  still change it between this check and the tool's own HTTP client's later connect call.
+  Eliminating that race needs the HTTP client to connect to the exact address this check
+  validated (DNS pinning), which is connection-layer behavior `governTool()` has no hook into.

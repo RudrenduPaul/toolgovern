@@ -752,4 +752,63 @@ describe('governTool', () => {
       expect(calls()).toBe(2);
     });
   });
+
+  describe("TG03 DNS-resolution check runs through governTool()'s real call chain", () => {
+    // `execute()` already awaits the classifier, so wiring classifyAsync() through it is what
+    // makes this end-to-end test possible in the first place -- these prove that wiring is
+    // actually in place, against the real OS resolver (node:dns is not mocked anywhere in this
+    // file), not just that the standalone rule works in isolation.
+    it('denies a call whose hostname argument resolves (via real DNS/hosts lookup) to loopback', async () => {
+      let executed = false;
+      const tool: ToolDefinition<{ host: string }, unknown> = {
+        name: 'http.get',
+        execute: (args) => {
+          executed = true;
+          return { host: args.host };
+        },
+      };
+      const gated = governTool(tool, {
+        scope: { network: ['other.example'], filesystem: [], credentials: [] },
+      });
+
+      await expect(gated.execute({ host: 'localhost' })).rejects.toThrow(ToolGovernDenialError);
+      expect(executed).toBe(false);
+    });
+
+    it('the denial carries the TG03-dns-resolves-private rule ID', async () => {
+      const tool: ToolDefinition<{ host: string }, unknown> = {
+        name: 'http.get',
+        execute: (args) => ({ host: args.host }),
+      };
+      const gated = governTool(tool, {
+        scope: { network: ['other.example'], filesystem: [], credentials: [] },
+      });
+
+      try {
+        await gated.execute({ host: 'localhost' });
+        expect.unreachable('expected governTool to throw for a hostname resolving to loopback');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ToolGovernDenialError);
+        const denial = error as ToolGovernDenialError;
+        expect(denial.decisionInfo.firedRules.map((r) => r.ruleId)).toContain(
+          'TG03-dns-resolves-private',
+        );
+      }
+    });
+
+    it(
+      'a clean call with no host argument at all is unaffected -- classifyAsync does not ' +
+        'change ordinary allow behavior for calls the DNS check has nothing to evaluate',
+      async () => {
+        // Deliberately not asserting an "allow" outcome for any *hostname* argument here: doing so
+        // would require the real hostname to actually resolve in whatever sandbox/CI network this
+        // suite runs in, which this project has no control over. The no-host case above is the
+        // honest way to prove classifyAsync's wiring doesn't regress the plain allow path.
+        const result = await governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        }).execute({ command: 'ls ./workspace' });
+        expect(result).toEqual({ ran: 'ls ./workspace' });
+      },
+    );
+  });
 });
