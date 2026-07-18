@@ -81,7 +81,7 @@ async def test_rm_rf_embedded_in_python_code_string_is_also_denied(tmp_path):
 async def test_path_traversal_write_in_code_string_is_denied(tmp_path):
     """TG02-path-traversal, root-causing microsoft/autogen#7181 (path traversal inside
     LocalCommandLineCodeExecutor): a Python code block that calls open() with a "../"-escaping
-    path is denied by the already-shipped Foundation extract_path_from_code() logic before the
+    path is denied by the shared extract_path_from_code() logic before the
     real executor writes the code file (let alone runs it and lets it write the traversal
     target)."""
     governed = _make_governed(tmp_path)
