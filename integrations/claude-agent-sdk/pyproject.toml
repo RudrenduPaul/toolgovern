@@ -29,7 +29,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "toolgovern>=0.1.0,<0.2",
+  "toolgovern-cli>=0.1.0,<0.2",
   "claude-agent-sdk>=0.2.0,<1",
 ]
 

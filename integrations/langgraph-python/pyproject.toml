@@ -28,7 +28,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "toolgovern>=0.1.0,<0.2",
+  "toolgovern-cli>=0.1.0,<0.2",
   "langgraph>=0.6.0,<2",
   "langchain-core>=0.3,<2",
 ]
