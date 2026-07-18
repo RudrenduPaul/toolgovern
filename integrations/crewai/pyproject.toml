@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "toolgovern-integration-crewai"
+version = "0.1.0"
+description = "Route CrewAI tool calls through toolgovern's govern_tool() gate before BaseTool._run fires -- wrap once, drop the governed tool straight into an Agent's tools list."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = "Apache-2.0"
+authors = [
+  { name = "Rudrendu Paul" },
+  { name = "Sourav Nandy" },
+]
+keywords = ["crewai", "ai-agents", "agent-governance", "tool-calling", "runtime-security", "audit-trail", "mcp"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "toolgovern>=0.1.0,<0.2",
+  "crewai>=1.15.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0,<9",
+]
+
+[project.urls]
+Homepage = "https://github.com/RudrenduPaul/toolgovern"
+Repository = "https://github.com/RudrenduPaul/toolgovern"
+"Bug Tracker" = "https://github.com/RudrenduPaul/toolgovern/issues"
+Changelog = "https://github.com/RudrenduPaul/toolgovern/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/toolgovern_integration_crewai"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "src/toolgovern_integration_crewai",
+  "tests",
+  "README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
