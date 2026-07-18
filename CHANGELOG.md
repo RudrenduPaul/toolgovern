@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Python 0.1.1] - 2026-07-18 - dependency security fixes
+
+Bumped `cryptography` to `>=48.0.1,<49` (was `>=41,<47`), fixing
+[GHSA-537c-gmf6-5ccf](https://github.com/advisories/GHSA-537c-gmf6-5ccf) (CVSS 7.5, HIGH -- an
+out-of-bounds read in the OpenSSL bundled with `cryptography` wheels prior to 48.0.1, remote/
+unauthenticated/no-user-interaction, availability impact). `cryptography` is a real, actively used
+production dependency (`mcp_trust`'s Ed25519/RSA manifest signature verification), not incidental --
+the prior `<47` upper bound blocked installing the fix entirely. Also bumped the dev-only `pytest`
+constraint to `>=9.0.3,<10`, fixing PYSEC-2026-1845. All 328 tests pass unchanged against both
+updated dependencies. No functional code changes.
+
 ## [Python 0.1.0] - 2026-07-18 - published to PyPI
 
 The account-wide PyPI new-project throttle noted below has cleared. `toolgovern` 0.1.0 is now live
