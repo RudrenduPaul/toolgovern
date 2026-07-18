@@ -91,20 +91,29 @@ def _raw_ip_literal_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
     host = extract_candidate_host(ctx.args)
     if not host or not is_ip_literal(host):
         return None
-    if ctx.scope.network is True:
-        return None
+    # An explicit, exact allowlist entry for this host is honored even if it is private/
+    # metadata -- that's a deliberate, specific operator decision (they named this exact
+    # address), unlike the blanket scope.network is True grant checked below, which
+    # incidentally covers everything including metadata endpoints without the operator ever
+    # having considered this specific address.
     if isinstance(ctx.scope.network, (list, tuple)) and host in ctx.scope.network:
         return None
     if is_private_or_metadata_target(host):
         # Loopback, RFC1918/unique-local, link-local, and cloud-metadata targets are denied
-        # outright -- a human approver must never be able to rubber-stamp a call into an
-        # internal network or a cloud metadata endpoint.
+        # outright for any scope that did not explicitly name this exact host above -- this
+        # check must run before the scope.network is True early-return below, not after it:
+        # an agent with unrestricted (but not host-specific) network access must still never
+        # be able to reach an internal network or cloud-metadata endpoint via this rule.
+        # That's the entire point of "never approvable" -- it cannot be conditional on a
+        # blanket network=True grant.
         return _match(
             "TG03-raw-ip-literal",
             "deny",
             f'Connection to loopback/private/cloud-metadata IP literal "{host}" is never approvable.',
             host,
         )
+    if ctx.scope.network is True:
+        return None
     return _match("TG03-raw-ip-literal", "require-approval", f'Connection to raw IP literal "{host}".', host)
 
 

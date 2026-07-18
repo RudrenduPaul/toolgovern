@@ -24,6 +24,16 @@ class TestComputeInheritedScope:
         result = compute_inherited_scope(coordinator, requested)
         assert list(result.network) == ["a.com"]
 
+    def test_grants_exactly_the_narrower_requested_host_not_the_coordinators_broader_domain(self):
+        # A sub-agent that requests a specific host under a domain the coordinator holds
+        # broadly must be granted that specific host, not widened out to the coordinator's
+        # whole domain -- filtering only the coordinator list (the original bug) returned
+        # ["example.com"] here instead of the single host actually requested.
+        coordinator = ScopeDeclaration(network=["example.com"])
+        requested = ScopeDeclaration(network=["api.example.com"])
+        result = compute_inherited_scope(coordinator, requested)
+        assert list(result.network) == ["api.example.com"]
+
     def test_filesystem_intersection_keeps_only_covered_paths(self):
         coordinator = ScopeDeclaration(filesystem=["/workspace"])
         requested = ScopeDeclaration(filesystem=["/workspace/sub", "/etc"])

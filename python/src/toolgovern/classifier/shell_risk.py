@@ -54,24 +54,41 @@ def _match(rule_id: str, decision: str, reason: str, matched_argument: str) -> R
     )
 
 
-# Each flag token is bounded ({1,16}) and the tokens are separated by a literal, unambiguous
-# \s+ -- unlike a single alternation of overlapping [a-z]* groups, there is only one way to
-# partition a matching string across these groups, so the engine cannot be driven into the
-# polynomial-time backtracking a long run of non-matching flag characters causes with the
-# ambiguous form. Confirmed empirically in the TS original: the ambiguous form took ~6s on an
-# 80,000-character adversarial argument; this form stays sub-millisecond at that size.
-_RM_PATTERN = re.compile(r"\brm\s+((?:-[a-z-]{1,16}\s+)*-[a-z-]{1,16})(?:\s+(\S+))?", re.IGNORECASE)
+# Captures the whole `rm` invocation up to the next command separator (;, &, |, newline) or end
+# of string -- a single bounded negated-character-class capture, so no nested quantifiers and no
+# ReDoS exposure (same safety class as the rest of this file's patterns). The captured segment is
+# tokenized and scanned in full below rather than requiring flags to sit in one contiguous run
+# immediately after `rm`: GNU coreutils' getopt permutes argv, so `rm -f /home/victim -r` still
+# executes as `rm -rf /home/victim` even though the `-r` trails the path -- a
+# flags-must-be-contiguous-and-leading regex misses that entirely.
+_RM_SEGMENT_PATTERN = re.compile(r"\brm\s+([^;&|\n]*)", re.IGNORECASE)
+
+# Matches both short combined flags (-rf, -fr) and GNU long flags (--recursive, --force) -- the
+# character class already covers hyphens, so a long flag like --recursive (16 chars after the
+# leading -) matches this bound without a separate long-flag alternative.
+_FLAG_TOKEN_PATTERN = re.compile(r"^-[a-z-]{1,18}$")
 
 
 def _rm_rf_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
     text = _command_text(ctx)
-    found = _RM_PATTERN.search(text)
+    found = _RM_SEGMENT_PATTERN.search(text)
     if not found:
         return None
-    flags = found.group(1) or ""
-    if "f" not in flags or "r" not in flags:
+    tokens = found.group(1).strip().split()
+    has_force = False
+    has_recursive = False
+    target = ""
+    for token in tokens:
+        if _FLAG_TOKEN_PATTERN.match(token):
+            if "f" in token:
+                has_force = True
+            if "r" in token:
+                has_recursive = True
+            continue
+        if not target:
+            target = token
+    if not has_force or not has_recursive:
         return None
-    target = found.group(2) or ""
     high_blast_radius = bool(re.match(r"^(/|~|\*|\.$|\./\*?$)", target)) or target == ""
     if not high_blast_radius:
         return None
@@ -140,13 +157,24 @@ def _sudo_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
     )
 
 
-_CHMOD_777_PATTERN = re.compile(r"\bchmod\s+(-[a-z]+\s+)?(777|a\+rwx|o\+w|0777)\b", re.IGNORECASE)
+# Same segment-then-tokenize approach as _RM_SEGMENT_PATTERN above, for the same reason: a
+# preceding-flag-group regex ((-[a-z]+\s+)?) fails to match GNU long flags like --recursive (the
+# second character is -, not a-z), which makes the *entire* match fail rather than just the flag
+# capture -- `chmod --recursive 777 /path` matched nothing at all under the old pattern. Scanning
+# every token in the segment means flag form/position/count no longer matter; only whether a
+# dangerous permission argument appears anywhere in the command.
+_CHMOD_SEGMENT_PATTERN = re.compile(r"\bchmod\s+([^;&|\n]*)", re.IGNORECASE)
+_CHMOD_DANGEROUS_PERMISSION_PATTERN = re.compile(r"^(777|a\+rwx|o\+w|0777)$", re.IGNORECASE)
 
 
 def _chmod_777_evaluate(ctx: RuleContext) -> Optional[RuleMatch]:
     text = _command_text(ctx)
-    found = _CHMOD_777_PATTERN.search(text)
+    found = _CHMOD_SEGMENT_PATTERN.search(text)
     if not found:
+        return None
+    tokens = found.group(1).strip().split()
+    dangerous = next((t for t in tokens if _CHMOD_DANGEROUS_PERMISSION_PATTERN.match(t)), None)
+    if not dangerous:
         return None
     return _match(
         "TG01-chmod-777",

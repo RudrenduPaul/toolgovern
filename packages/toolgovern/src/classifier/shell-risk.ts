@@ -37,14 +37,19 @@ function match(
 
 const category = 'TG01' as const;
 
-// Each flag token is bounded ({1,16}) and the tokens are separated by a literal, unambiguous
-// `\s+` -- unlike a single alternation of overlapping `[a-z]*` groups (e.g.
-// `-[a-z]*f[a-z]*r[a-z]*|-[a-z]*r[a-z]*f[a-z]*`), there is only one way to partition a matching
-// string across these groups, so the engine cannot be driven into the polynomial-time
-// backtracking a long run of non-matching flag characters (e.g. `rm -` + `f`.repeat(80000))
-// causes with the ambiguous form. Confirmed empirically: the ambiguous form took ~6s on an
-// 80,000-character adversarial argument; this form stays sub-millisecond at that size.
-const RM_PATTERN = /\brm\s+((?:-[a-z-]{1,16}\s+)*-[a-z-]{1,16})(?:\s+(\S+))?/i;
+// Captures the whole `rm` invocation up to the next command separator (`;`, `&`, `|`, newline)
+// or end of string -- a single bounded negated-character-class capture, so no nested
+// quantifiers and no ReDoS exposure (same safety class as the rest of this file's patterns).
+// The captured segment is then tokenized and scanned in full below rather than requiring flags
+// to sit in one contiguous run immediately after `rm`: GNU coreutils' getopt permutes argv, so
+// `rm -f /home/victim -r` still executes as `rm -rf /home/victim` even though the `-r` trails
+// the path -- a flags-must-be-contiguous-and-leading regex misses that entirely.
+const RM_SEGMENT_PATTERN = /\brm\s+([^;&|\n]*)/i;
+
+// Matches both short combined flags (`-rf`, `-fr`) and GNU long flags (`--recursive`,
+// `--force`) -- the character class already covers hyphens, so a long flag like `--recursive`
+// (16 chars after the leading `-`) matches this bound without a separate long-flag alternative.
+const FLAG_TOKEN_PATTERN = /^-[a-z-]{1,18}$/;
 
 const rmRf: Rule = {
   id: 'TG01-rm-rf',
@@ -52,11 +57,21 @@ const rmRf: Rule = {
   description: 'Recursive/forced delete of a root, home, or wildcard-rooted path.',
   evaluate(ctx) {
     const text = commandText(ctx);
-    const found = text.match(RM_PATTERN);
+    const found = text.match(RM_SEGMENT_PATTERN);
     if (!found) return null;
-    const flags = found[1] ?? '';
-    if (!flags.includes('f') || !flags.includes('r')) return null;
-    const target = found[2] ?? '';
+    const tokens = (found[1] ?? '').trim().split(/\s+/).filter(Boolean);
+    let hasForce = false;
+    let hasRecursive = false;
+    let target = '';
+    for (const token of tokens) {
+      if (FLAG_TOKEN_PATTERN.test(token)) {
+        if (token.includes('f')) hasForce = true;
+        if (token.includes('r')) hasRecursive = true;
+        continue;
+      }
+      if (!target) target = token;
+    }
+    if (!hasForce || !hasRecursive) return null;
     const highBlastRadius = /^(\/|~|\*|\.$|\.\/\*?$)/.test(target) || target === '';
     if (!highBlastRadius) return null;
     return match(
@@ -124,14 +139,26 @@ const sudo: Rule = {
   },
 };
 
+// Same segment-then-tokenize approach as RM_SEGMENT_PATTERN above, for the same reason: a
+// preceding-flag-group regex (`(-[a-z]+\s+)?`) fails to match GNU long flags like `--recursive`
+// (the second character is `-`, not `a-z`), which makes the *entire* match fail rather than just
+// the flag capture -- `chmod --recursive 777 /path` matched nothing at all under the old pattern.
+// Scanning every token in the segment means flag form/position/count no longer matter; only
+// whether a dangerous permission argument appears anywhere in the command.
+const CHMOD_SEGMENT_PATTERN = /\bchmod\s+([^;&|\n]*)/i;
+const CHMOD_DANGEROUS_PERMISSION_PATTERN = /^(777|a\+rwx|o\+w|0777)$/i;
+
 const chmod777: Rule = {
   id: 'TG01-chmod-777',
   category,
   description: 'World-writable/executable permission grant.',
   evaluate(ctx) {
     const text = commandText(ctx);
-    const found = text.match(/\bchmod\s+(-[a-z]+\s+)?(777|a\+rwx|o\+w|0777)\b/i);
+    const found = text.match(CHMOD_SEGMENT_PATTERN);
     if (!found) return null;
+    const tokens = (found[1] ?? '').trim().split(/\s+/).filter(Boolean);
+    const dangerous = tokens.find((token) => CHMOD_DANGEROUS_PERMISSION_PATTERN.test(token));
+    if (!dangerous) return null;
     return match(
       this,
       'deny',

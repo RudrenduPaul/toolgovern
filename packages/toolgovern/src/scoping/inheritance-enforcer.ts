@@ -23,9 +23,28 @@ function intersectNetwork(
   const requestedList = requested === true ? null : requested;
   if (coordinatorList === null) return requestedList ?? [];
   if (requestedList === null) return coordinatorList;
-  return coordinatorList.filter((host) =>
-    requestedList.some((req) => hostMatchesAllowed(host, req) || hostMatchesAllowed(req, host)),
-  );
+  // For each (coordinator, requested) pair that are the same host or one is a subdomain of
+  // the other, grant the NARROWER of the two -- not unconditionally whichever list's entry
+  // matched. Filtering only the coordinator list (the original bug) grants a sub-agent that
+  // asked for a narrow host (`api.example.com`) the coordinator's much broader entry
+  // (`example.com`) whenever the broader entry's domain happens to cover the narrow request.
+  // Filtering only the requested list would fix that case but breaks the opposite one: a
+  // sub-agent that broadly requests `example.com` while the coordinator holds both
+  // `example.com` and a narrower `api.example.com` should still receive the narrower
+  // `api.example.com` grant intact (it's covered by the broad request, not widened by it).
+  const granted = new Set<string>();
+  for (const coordHost of coordinatorList) {
+    for (const reqHost of requestedList) {
+      if (coordHost === reqHost) {
+        granted.add(coordHost);
+      } else if (hostMatchesAllowed(coordHost, reqHost)) {
+        granted.add(coordHost); // coordinator's entry is the narrower (subdomain) value
+      } else if (hostMatchesAllowed(reqHost, coordHost)) {
+        granted.add(reqHost); // requested entry is the narrower (subdomain) value
+      }
+    }
+  }
+  return Array.from(granted);
 }
 
 function intersectFilesystem(

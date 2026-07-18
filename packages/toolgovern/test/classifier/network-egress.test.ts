@@ -89,6 +89,17 @@ describe('TG03 undeclared network egress', () => {
         expect(
           decisionOf('TG03-raw-ip-literal', { host: '169.254.169.254' }, ['example.com']),
         ).toBe('deny'));
+      it('denies the same metadata address in bare single-integer decimal form (2852039166 == 169.254.169.254)', () =>
+        expect(decisionOf('TG03-raw-ip-literal', { host: '2852039166' }, ['example.com'])).toBe(
+          'deny',
+        ));
+      it('recognizes a decimal-encoded PUBLIC IP as an IP literal too (203.0.113.5 == 3405803781)', () =>
+        // Sanity check that the decimal form is recognized as an IP literal in the first
+        // place, not just for metadata/private targets: a decimal-encoded public address not
+        // in scope still requires approval like its dotted-decimal equivalent would.
+        expect(decisionOf('TG03-raw-ip-literal', { host: '3405803781' }, ['example.com'])).toBe(
+          'require-approval',
+        ));
       it('denies an IPv4 loopback target', () =>
         expect(decisionOf('TG03-raw-ip-literal', { host: '127.0.0.1' }, ['example.com'])).toBe(
           'deny',
