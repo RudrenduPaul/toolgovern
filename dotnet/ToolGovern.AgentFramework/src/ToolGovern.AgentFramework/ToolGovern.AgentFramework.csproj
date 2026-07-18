@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>ToolGovern.AgentFramework</RootNamespace>
+
+    <PackageId>ToolGovern.AgentFramework</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>ToolGovern contributors</Authors>
+    <Description>toolgovern integration for Microsoft Agent Framework (.NET): wraps a real
+Microsoft.Extensions.AI.AIFunction in a DelegatingAIFunction subclass that routes every
+invocation through ToolGovern.Net's classifier before the underlying function executes.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>agent-governance;tool-calling;security;llm-agents;guardrails;agent-framework</PackageTags>
+    <RepositoryUrl>https://github.com/RudrenduPaul/toolgovern</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\ToolGovern\src\ToolGovern\ToolGovern.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+</Project>
