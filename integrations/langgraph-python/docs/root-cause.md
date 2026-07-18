@@ -1,9 +1,8 @@
 # Root-cause re-check: this package against the real langchain-ai/langgraph issues
 
-Re-verified by reading each issue/PR live via `gh issue view` / `gh api .../comments`, and by
-reading `python/src/toolgovern/approval/pending_registry.py` and
-`python/src/toolgovern/middleware/on_tool_call.py` in full, before writing any verdict below. Not
-guessed.
+Verified against each issue/PR's live GitHub thread (via `gh issue view` / `gh api .../comments`)
+and against the actual current source of `python/src/toolgovern/approval/pending_registry.py` and
+`python/src/toolgovern/middleware/on_tool_call.py`, rather than inferred from issue titles alone.
 
 ## #8026 -- "[Feature Request]: Add a high-level ApprovalNode for Human-in-the-Loop workflows"
 
