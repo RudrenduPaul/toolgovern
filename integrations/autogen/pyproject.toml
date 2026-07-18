@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "toolgovern-integration-autogen"
+version = "0.1.0"
+description = "Routes Microsoft AutoGen (autogen-agentchat/autogen-core/autogen-ext) tool and code-execution calls through toolgovern's govern_tool() gate before they execute."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+  { name = "Rudrendu Paul" },
+  { name = "Sourav Nandy" },
+]
+keywords = ["security", "ai-agents", "agent-governance", "autogen", "microsoft-autogen", "tool-calling", "runtime-security", "code-execution"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "toolgovern>=0.1.0,<0.2",
+  "autogen-core>=0.4,<1",
+  "autogen-agentchat>=0.4,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0,<9",
+  "pytest-asyncio>=0.23,<0.26",
+  "autogen-ext>=0.4,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/RudrenduPaul/toolgovern"
+Repository = "https://github.com/RudrenduPaul/toolgovern"
+"Bug Tracker" = "https://github.com/RudrenduPaul/toolgovern/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/toolgovern_integration_autogen"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "src/toolgovern_integration_autogen",
+  "tests",
+  "README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
