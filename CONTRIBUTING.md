@@ -60,7 +60,8 @@ pytest
    `prior_trace_id` link
 2. Build the wheel and sdist **outside** the `python/` source tree before publishing (a venv
    built inside `python/` gets bundled into the sdist by hatchling's default sdist target) --
-   see the release checklist in this repo's own build history for the exact commands
+   e.g. `python -m build python/ --outdir /tmp/toolgovern-dist` run from the repo root, not
+   from inside a venv created under `python/`
 3. Inspect the built wheel/sdist file listing (`unzip -l` / `tar tzf`) before any `twine upload`
    to confirm it contains only real project files
 
