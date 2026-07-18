@@ -12,7 +12,9 @@ toolgovern ships two independent, equally first-class packages -- pick whichever
 toolchain, or install both. Neither is deprecated in favor of the other; they run the same 35-rule
 synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
 -- see below), apply the same default-deny scope-inheritance model, and write the same signed
-trace format.
+trace format. The npm package is live today; the Python port is code-complete and fully tested but
+not yet published to PyPI (see [`python/README.md`](./python/README.md) for why and for the
+install-from-source path in the meantime).
 
 ```bash
 # npm -- JavaScript/TypeScript core library + CLI
@@ -20,7 +22,7 @@ npm install toolgovern
 npm install --save-dev toolgovern-cli
 
 # PyPI -- Python core library + CLI (genuine port, not a wrapper around the Node binary)
-pip install toolgovern
+# not live yet -- see python/README.md for the current install-from-source path
 ```
 
 The Python package's console script is `toolgovern-cli`, matching the npm CLI's command name --
@@ -480,8 +482,13 @@ this is the integration that targets real, reported behavior -- see
 [`integrations/langgraph-python/docs/root-cause.md`](./integrations/langgraph-python/docs/root-cause.md)
 for the per-issue PASS/PARTIAL/FAIL verdicts.
 
+This isn't published to PyPI yet -- install it from source:
+
 ```bash
-pip install toolgovern-integration-langgraph
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/langgraph-python
 ```
 
 ```python
@@ -508,8 +515,13 @@ for the full writeup, including honest PASS/PARTIAL/FAIL verdicts against real u
 `microsoft/agent-framework` issues. This one is Python-only; the .NET side of Agent Framework has
 its own separate adapter -- see the ".NET" section below.
 
+This isn't published to PyPI yet -- install it from source:
+
 ```bash
-pip install toolgovern-integration-agent-framework
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/agent-framework
 ```
 
 ```python
@@ -866,9 +878,10 @@ server dependency and nothing to sign up for.
 
 **Does it work with Python or .NET agent frameworks?**
 Yes, both have a genuine core port, not a bridge that shells out to the Node binary. The Python
-port (`pip install toolgovern`) ships five framework integrations (LangGraph, CrewAI, AutoGen,
-Microsoft Agent Framework, Claude Agent SDK); the .NET port (`dotnet/ToolGovern`, source-available,
-not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
+port (code-complete, tested, not yet on PyPI -- install from source, see
+[`python/README.md`](./python/README.md)) ships five framework integrations (LangGraph, CrewAI,
+AutoGen, Microsoft Agent Framework, Claude Agent SDK); the .NET port (`dotnet/ToolGovern`,
+source-available, not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
 [Framework integration](#framework-integration) above for the full list and what's actually
 published versus source-only today.
 
