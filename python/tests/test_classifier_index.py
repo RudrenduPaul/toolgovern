@@ -1,22 +1,23 @@
 """Classifier aggregation tests. Ported in spirit from
 packages/toolgovern/test/classifier/index.test.ts -- severity ordering, disable/downgrade
-options, and the overall 35-rule registry count (34 original + TG03-dns-resolves-private).
+options, and the overall 36-rule registry count (34 original + TG03-dns-resolves-private +
+TG08-confidential-source-to-untrusted-sink).
 """
 
 from toolgovern import ScopeDeclaration
 from toolgovern.classifier.index import ClassifyOptions, classify, rule_registry
 
 
-def test_rule_registry_has_35_rules_total():
-    assert len(rule_registry) == 35
-    assert len({r.id for r in rule_registry}) == 35
+def test_rule_registry_has_36_rules_total():
+    assert len(rule_registry) == 36
+    assert len({r.id for r in rule_registry}) == 36
 
 
 def test_rule_registry_category_breakdown():
     counts = {}
     for r in rule_registry:
         counts[r.category] = counts.get(r.category, 0) + 1
-    assert counts == {"TG01": 9, "TG02": 7, "TG03": 7, "TG04": 6, "TG05": 6}
+    assert counts == {"TG01": 9, "TG02": 7, "TG03": 7, "TG04": 6, "TG05": 6, "TG08": 1}
 
 
 def test_no_fired_rules_means_allow(ctx_factory):

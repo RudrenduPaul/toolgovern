@@ -1,7 +1,8 @@
 /**
- * The classifier: runs every rule in the TG01-TG05 pack against one normalized call context and
- * aggregates the result. Decision severity order is `deny` > `require-approval` > `allow` -- if
- * any rule denies, the call is denied, no matter how many other rules would have allowed it.
+ * The classifier: runs every rule in the TG01-TG05 + TG08 pack against one normalized call
+ * context and aggregates the result. Decision severity order is `deny` > `require-approval` >
+ * `allow` -- if any rule denies, the call is denied, no matter how many other rules would have
+ * allowed it.
  *
  * Every non-allow decision is traceable to the specific rule ID(s) that fired and the argument
  * that tripped each one -- see `types.ts#RuleMatch`. There is no unexplained black-box denial in
@@ -14,6 +15,7 @@ import { filesystemScopeRules } from './filesystem-scope.js';
 import { networkEgressRules, networkEgressAsyncRules } from './network-egress.js';
 import { credentialAccessRules } from './credential-access.js';
 import { crossAgentInheritanceRules } from './cross-agent-inheritance.js';
+import { informationFlowRules } from './information-flow.js';
 
 export const ruleRegistry = [
   ...shellRiskRules,
@@ -21,6 +23,7 @@ export const ruleRegistry = [
   ...networkEgressRules,
   ...credentialAccessRules,
   ...crossAgentInheritanceRules,
+  ...informationFlowRules,
 ];
 
 /** Every registered `AsyncRule` -- currently just TG03's DNS-resolution check. Evaluated only by
@@ -120,4 +123,5 @@ export {
   networkEgressAsyncRules,
   credentialAccessRules,
   crossAgentInheritanceRules,
+  informationFlowRules,
 };

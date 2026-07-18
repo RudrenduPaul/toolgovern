@@ -8,7 +8,7 @@ it executes, not after something already went wrong.
 
 This is the genuine Python port of [`toolgovern`](https://www.npmjs.com/package/toolgovern) and
 [`toolgovern-cli`](https://www.npmjs.com/package/toolgovern-cli) -- not a wrapper around the Node
-binary. It ships the same 35-rule classifier, the same default-deny scope-inheritance model, and
+binary. It ships the same 36-rule classifier, the same default-deny scope-inheritance model, and
 the same signed local audit trail. The complementary JS/TS distribution installs the same way on
 the npm side: `npm install toolgovern` for the library, `npm install --save-dev toolgovern-cli`
 for the CLI -- see the [project README](https://github.com/RudrenduPaul/toolgovern#readme) for
@@ -27,9 +27,10 @@ agent down, and no record of what it actually tried to do once it's running.
 
 toolgovern is a runtime governance layer that sits between the agent and its real tool executor --
 not another prompt-engineering mitigation. `govern_tool()` wraps any `ToolDefinition(name,
-execute)` and runs every call through the same pipeline before `execute()` fires: a 35-rule
+execute)` and runs every call through the same pipeline before `execute()` fires: a 36-rule
 classifier that inspects the call's actual arguments across shell risk, filesystem scope, network
-egress, credential access, and cross-agent privilege inheritance; an intersection-only scope
+egress, credential access, cross-agent privilege inheritance, and (opt-in) information-flow
+control; an intersection-only scope
 registry, so a sub-agent's effective access is always the intersection of what it requests and what
 its coordinator can already reach, re-checked on every call rather than just at spawn time; and an
 optional signed, hash-chained local audit trail recording each decision -- allow, deny, or
@@ -81,8 +82,8 @@ gated_shell = govern_tool(shell_tool, GovernToolOptions.from_policy(policy))
 
 ## What it does
 
-The classifier evaluates a tool call's actual arguments, not the tool's name, against 35 rules
-across 5 categories:
+The classifier evaluates a tool call's actual arguments, not the tool's name, against 36 rules
+across 6 categories:
 
 | Category | Covers                            | Rules |
 | -------- | --------------------------------- | ----- |
@@ -91,6 +92,7 @@ across 5 categories:
 | TG03     | Undeclared network egress         | 7     |
 | TG04     | Credential/secret access          | 6     |
 | TG05     | Cross-agent privilege inheritance | 6     |
+| TG08     | Information-flow control (opt-in) | 1     |
 
 TG03's 7th rule, `TG03-dns-resolves-private`, resolves a hostname argument via
 `socket.getaddrinfo()` (honoring `/etc/hosts`) and applies the same loopback/RFC1918/link-local/

@@ -9,7 +9,7 @@ it executes, not after something already went wrong.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 toolgovern ships two independent, equally first-class packages -- pick whichever fits your
-toolchain, or install both. Neither is deprecated in favor of the other; they run the same 34-rule
+toolchain, or install both. Neither is deprecated in favor of the other; they run the same 35-rule
 synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
 -- see below), apply the same default-deny scope-inheritance model, and write the same signed
 trace format.
@@ -140,16 +140,26 @@ actually has, checked on every call it makes, not just validated once when it sp
 | TG03 Undeclared Network Egress         | Hosts outside the declared allowlist, raw IP literals (including IPv6), non-standard ports, DNS-exfil-shaped subdomains, known paste/tunnel relays, deny (not approval) for private/metadata targets | 6     |
 | TG04 Credential/Secret Access          | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope                                                                                  | 6     |
 | TG05 Cross-Agent Privilege Inheritance | A sub-agent call outside what its coordinator actually granted, a zero-capability sub-agent attempting any call, a coordinator's own scope shrinking mid-session                                     | 6     |
+| TG08 Information-Flow Control          | A call reading from a caller-declared confidential-or-higher source and writing/sending to a destination whose declared trust tier is lower, or was never declared at all (fails closed to approval) | 1     |
 
-34 rules total, all synchronous, all reachable via `classify()`. Two more categories aren't in
+35 rules total, all synchronous, all reachable via `classify()`. Two category names aren't in
 v0.1: TG06 (high-risk tool combinations across a session) and TG07 (retrying a denied call with
 modified arguments) both need cross-call session state that this classifier doesn't yet keep,
 since it evaluates one call at a time with no memory of prior calls. That's a stated limitation,
-not a hidden one.
+not a hidden one. TG08 (above) is the next category after TG05 that ships, because -- unlike
+TG06/TG07 -- it needs no cross-call state: it evaluates one call's own declared source/sink
+arguments against a caller-declared label policy (`ScopeDeclaration.ifc`), nothing more. TG08 is
+opt-in: it never fires for an agent whose scope declares no `ifc` policy at all, so this addition
+changes nothing for existing callers. See
+[`docs/concepts.md`](./docs/concepts.md#tg08-information-flow-control) for the labeling API and
+[`docs/security-model.md`](./docs/security-model.md) for what this scoped primitive deliberately
+does not attempt (no automatic label inference, no cross-call taint tracking, no reader-scoped
+lattice -- it is not a FIDES-style MCP gateway IFC system, just the smallest real primitive that
+lets a genuine label-propagation check exist).
 
-**A 35th check, async-only: DNS resolution of hostname arguments (TG03).** A raw IP literal
+**A 36th check, async-only: DNS resolution of hostname arguments (TG03).** A raw IP literal
 argument (`127.0.0.1`, `169.254.169.254`, ...) targeting loopback/RFC1918/link-local/cloud-metadata
-space is already denied by the 34-rule table above. What that table's `TG03-raw-ip-literal` rule
+space is already denied by the 35-rule table above. What that table's `TG03-raw-ip-literal` rule
 cannot catch is a **hostname** argument that merely _resolves_ to one of those same addresses
 (`internal-alias.attacker.io -> 127.0.0.1`) -- a DNS lookup is inherently I/O, not something a
 synchronous rule can do. `TG03-dns-resolves-private` closes that gap: it resolves the hostname via
@@ -157,11 +167,11 @@ synchronous rule can do. `TG03-dns-resolves-private` closes that gap: it resolve
 check to every resolved address, failing closed (`require-approval`, never `allow`) if resolution
 itself fails or times out. Because this needs `await`, it lives in a separate `classifyAsync()`
 entry point (`governTool()`'s already-`async` `execute()` calls this instead of the synchronous
-`classify()`), not the 34-rule table above -- `classify()` alone will not run it. See
+`classify()`), not the 35-rule table above -- `classify()` alone will not run it. See
 [`docs/security-model.md`](./docs/security-model.md) (finding #10) for the full writeup, including
 the honestly-disclosed limits: this narrows but does not eliminate DNS-rebinding TOCTOU, and
 redirect-chain revalidation is a separate, still-open gap this check does not attempt. The Python
-package folds the equivalent check directly into its one synchronous `classify()` instead (35
+package folds the equivalent check directly into its one synchronous `classify()` instead (36
 rules total there), since `govern_tool()` is synchronous end to end in that port and
 `socket.getaddrinfo()` is itself a blocking call -- see
 [`python/README.md`](./python/README.md) for that side's rule count.
@@ -174,7 +184,7 @@ By default, a call that matches no rule at all is allowed, not denied -- `govern
 `defaultDecision` option defaults to `'allow'`, favoring usability over a hard fail-closed
 posture out of the box. If you want unrecognized calls to require approval or be denied instead,
 set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
-"nothing could have gone wrong" -- it means "checked against 34 rules, none fired."
+"nothing could have gone wrong" -- it means "checked against 35 rules, none fired."
 
 ## API reference
 
@@ -222,9 +232,9 @@ you actually import from.
 
 | Export              | Signature                                                                    | What it does                                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `classify`          | `(ctx: RuleContext, options?: ClassifyOptions) => ClassifierResult`          | Runs the 34-rule synchronous classifier directly against a call context. Does not run `TG03-dns-resolves-private` (see below). |
+| `classify`          | `(ctx: RuleContext, options?: ClassifyOptions) => ClassifierResult`          | Runs the 35-rule synchronous classifier directly against a call context. Does not run `TG03-dns-resolves-private` (see below). |
 | `classifyAsync`     | `(ctx: RuleContext, options?: ClassifyOptions) => Promise<ClassifierResult>` | What `governTool()` actually calls: everything `classify()` does, plus the async TG03 DNS-resolution check.                    |
-| `ruleRegistry`      | `Rule[]`                                                                     | The 34 synchronous rules -- what `classify()` checks every call against.                                                       |
+| `ruleRegistry`      | `Rule[]`                                                                     | The 35 synchronous rules -- what `classify()` checks every call against.                                                       |
 | `asyncRuleRegistry` | `AsyncRule[]`                                                                | The async-only rule(s) -- currently just `TG03-dns-resolves-private` -- `classifyAsync()` additionally checks.                 |
 
 **Other**
@@ -274,7 +284,7 @@ documented hook coverage is strongest for Claude Code/Codex, partial elsewhere),
 HITL is a manual pause-and-ask primitive with no automated classification underneath it. Listing
 them here is about scope, not a claim that toolgovern beats them at their own task.
 
-Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 34 rules
+Where toolgovern's actual edge sits: you `npm install` it, wrap one function, and get 35 rules
 that already exist -- no policy authoring, no identity system to stand up, no separate services to
 run. AGT is infrastructure you deploy; toolgovern is a library you import. If you want a curated
 rule set with zero configuration and you're fine running it yourself with no vendor and no
@@ -520,7 +530,7 @@ guarantees, is in `CONTRIBUTING.md`. Report a vulnerability per `SECURITY.md`, n
 ## FAQ
 
 **Does toolgovern make a tool call safe?**
-No. A gate decision of `allow` means the call was checked against the current 34-rule set and
+No. A gate decision of `allow` means the call was checked against the current 35-rule set and
 nothing fired -- it's a check against a finite, disclosed rule set, not a safety guarantee. See
 `docs/security-model.md` for exactly what the classifier does and doesn't catch.
 
@@ -540,7 +550,7 @@ bridge. If your framework is Python- or .NET-based, `governTool()` isn't somethi
 your tools in without a bridge that doesn't exist yet.
 
 **Does it detect every risky tool call?**
-No, and the README says so on purpose. The 34 rules are checked honestly against a 116-case corpus
+No, and the README says so on purpose. The 35 rules are checked honestly against a 116-case corpus
 the maintainers wrote (see Benchmarks below) -- that's a claim about the rules doing what they were
 designed to do, not a claim that every real-world risky call gets caught. A technique outside the
 corpus could still get through.

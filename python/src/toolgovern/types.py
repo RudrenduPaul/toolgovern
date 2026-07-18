@@ -32,12 +32,41 @@ Decision = Literal["allow", "deny", "require-approval"]
 # cryptographically verified").
 AgentIdSource = Literal["explicit", "fallback"]
 
-# The five v0.1 risk-rule categories. TG06/TG07 need cross-call session state and ship later.
-RuleCategory = Literal["TG01", "TG02", "TG03", "TG04", "TG05"]
+# The v0.1-and-later risk-rule categories. TG06 (high-risk tool combinations across a session)
+# and TG07 (retrying a denied call with modified arguments) are reserved names for two rule
+# categories that still need cross-call session state this classifier does not yet keep, and
+# have deliberately not been claimed here. TG08 (information-flow control) is per-call, needs no
+# session state, and ships now -- see classifier/information_flow.py.
+RuleCategory = Literal["TG01", "TG02", "TG03", "TG04", "TG05", "TG08"]
+
+# A confidentiality label for information-flow-control (IFC) checks (TG08): a fixed, closed,
+# ordered set from least to most sensitive -- "public" < "internal" < "confidential" <
+# "restricted". See classifier/information_flow.py's module docstring for what a real IFC
+# lattice would add that this deliberately does not.
+ConfidentialityLabel = Literal["public", "internal", "confidential", "restricted"]
 
 # A network scope value: False (no access), True (unrestricted), or an explicit hostname
 # allowlist.
 NetworkScope = Union[bool, Sequence[str]]
+
+
+@dataclass(frozen=True)
+class IfcPolicy:
+    """The caller-declared information-flow-control labeling for one agent's tool wrapping,
+    consumed by TG08 (``classifier/information_flow.py``). This is a hand-declared labeling
+    API, not automatic inference -- toolgovern has no way to know a resource's real
+    confidentiality level or a destination's real trust tier from a bare tool-call argument, so
+    TG08 only ever evaluates labels the caller explicitly declares here.
+
+    ``sources`` maps a resource identifier (whatever string a call's declared source argument
+    names) to the ``ConfidentialityLabel`` it carries. ``sink_trust`` maps a destination
+    identifier to the highest ``ConfidentialityLabel`` that destination is trusted to receive.
+    A destination absent from ``sink_trust`` is undeclared, not "declared untrusted" -- TG08
+    treats that as ambiguous and requires human approval, never a silent allow.
+    """
+
+    sources: Mapping[str, ConfidentialityLabel] = field(default_factory=dict)
+    sink_trust: Mapping[str, ConfidentialityLabel] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -48,12 +77,15 @@ class ScopeDeclaration:
     discouraged, but supported for local/dev use), or an explicit allowlist of hostnames.
     ``filesystem`` is a list of path prefixes the agent may read/write/delete under.
     ``credentials`` is a list of credential identifiers (file paths, secret names) the agent
-    may access.
+    may access. ``ifc``, when supplied, declares the confidentiality/trust labeling TG08
+    evaluates; ``None`` (the default) means TG08 never fires for this agent -- opt-in, not a
+    behavior change for existing callers who never declare it.
     """
 
     network: NetworkScope = False
     filesystem: Sequence[str] = field(default_factory=tuple)
     credentials: Sequence[str] = field(default_factory=tuple)
+    ifc: Optional[IfcPolicy] = None
 
 
 @dataclass(frozen=True)

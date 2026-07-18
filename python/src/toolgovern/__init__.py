@@ -7,8 +7,9 @@ current rule set -- it is not a guarantee the call is safe.
 
 This is a genuine Python port of the ``toolgovern`` npm package
 (https://github.com/RudrenduPaul/toolgovern), not a wrapper around the Node binary. It ships the
-same 35-rule classifier (TG01-TG05), the same default-deny scope-inheritance model, and the same
-signed local audit trail (unkeyed sha256 by default, optional hmac-sha256 keyed signing).
+same 36-rule classifier (TG01-TG05, plus TG08 information-flow control), the same default-deny
+scope-inheritance model, and the same signed local audit trail (unkeyed sha256 by default,
+optional hmac-sha256 keyed signing).
 
 One deliberate divergence from the TS original: TG03's DNS-resolution check
 (``TG03-dns-resolves-private``) runs as an ordinary synchronous member of the one ``classify()``
@@ -43,6 +44,7 @@ from .classifier import (
     credential_access_rules,
     cross_agent_inheritance_rules,
     filesystem_scope_rules,
+    information_flow_rules,
     network_egress_rules,
     rule_registry,
     shell_risk_rules,
@@ -106,7 +108,9 @@ from .types import (
     AgentIdSource,
     AgentScopeRecord,
     ClassifierResult,
+    ConfidentialityLabel,
     Decision,
+    IfcPolicy,
     Policy,
     Rule,
     RuleCategory,
@@ -125,7 +129,9 @@ __all__ = [
     "AgentIdSource",
     "AgentScopeRecord",
     "ClassifierResult",
+    "ConfidentialityLabel",
     "Decision",
+    "IfcPolicy",
     "Policy",
     "Rule",
     "RuleCategory",
@@ -183,6 +189,7 @@ __all__ = [
     "network_egress_rules",
     "credential_access_rules",
     "cross_agent_inheritance_rules",
+    "information_flow_rules",
     # scoping
     "EMPTY_SCOPE",
     "ScopeRegistry",

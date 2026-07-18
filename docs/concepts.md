@@ -7,7 +7,7 @@ version that runs every call through this pipeline before the underlying `execut
 
 ```
 call arrives -> resolve effective scope (direct, or via ScopeRegistry) -> classify() against
-the 34-rule registry -> aggregate to one decision (deny > require-approval > allow) ->
+the 35-rule registry -> aggregate to one decision (deny > require-approval > allow) ->
 require-approval calls the approval handler, fail-closed on no handler/timeout/exception ->
 write a trace entry (if a TraceWriter is wired in) -> deny raises, allow proceeds to execute()
 ```
@@ -16,7 +16,7 @@ Source: `packages/toolgovern/src/middleware/onToolCall.ts` (TypeScript) and
 `toolgovern/middleware/on_tool_call.py` (Python) implement the same pipeline. The Python port is
 synchronous; the classifier itself is pure and deterministic in both languages.
 
-## The classifier: 34 rules across 5 categories
+## The classifier: 35 rules across 6 categories
 
 | Category | What it covers                                                                                                                                                     | Rule count |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
@@ -25,6 +25,7 @@ synchronous; the classifier itself is pure and deterministic in both languages.
 | TG03     | Undeclared network egress (disabled network, host not in allowlist, raw IP literals, non-standard ports, DNS-exfil patterns, known paste/relay services)           | 6          |
 | TG04     | Credential/secret access (`.env`, SSH keys, cloud credential files, OS keychains, bulk env dumps, named credentials outside scope)                                 | 6          |
 | TG05     | Cross-agent privilege inheritance (unregistered sub-agents, zero-capability grants, requests exceeding what a coordinator actually granted)                        | 6          |
+| TG08     | Information-flow control (a call reading a caller-declared confidential-or-higher source and writing/sending to a lower- or undeclared-trust sink)                 | 1          |
 
 Every fired rule carries a `ruleId`, a `decision` (`deny` or `require-approval` -- a rule never
 returns `allow`; it either fires or it doesn't), a human-readable `reason`, and the argument
@@ -43,12 +44,14 @@ what obfuscation shapes remain out of scope.
 
 ## Scope declaration and default-deny inheritance
 
-A `ScopeDeclaration` has three fields:
+A `ScopeDeclaration` has four fields:
 
 - `network`: `false` (no access), `true` (unrestricted -- discouraged, local/dev use only), or
   an explicit hostname allowlist (subdomains match).
 - `filesystem`: a list of path prefixes the agent may read/write/delete under.
 - `credentials`: a list of credential identifiers (paths, secret names) the agent may access.
+- `ifc` (optional): a caller-declared confidentiality/trust labeling policy TG08 evaluates -- see
+  below. Omitted entirely (the default) means TG08 never fires for this agent.
 
 When a coordinator agent spawns a sub-agent, the sub-agent's granted scope is the
 **intersection** of what it requests and what its coordinator's own effective scope actually
@@ -57,6 +60,54 @@ the empty scope for its "sub-agent," not unrestricted access. `ScopeRegistry` re
 every call a TG05 rule evaluates, not just once at spawn time, so a coordinator's scope shrinking
 after a sub-agent was spawned is caught on the sub-agent's next call
 (`TG05-coordinator-scope-shrunk`).
+
+## TG08: information-flow control
+
+Every rule above answers "should this call happen" -- is this argument dangerous, is this
+path/host/credential in scope. TG08 answers a categorically different question: **can this
+_data_ flow here?** Microsoft Agent Framework's FIDES answers the fuller version of that question
+with a confidentiality-label lattice tracked across an entire MCP gateway boundary. TG08 is
+deliberately not that -- it is the smallest real primitive that lets a genuine label-propagation
+check exist at all, scoped down to one call at a time.
+
+**The labeling API.** `ConfidentialityLabel` is a fixed, closed, ordered set: `'public'` <
+`'internal'` < `'confidential'` < `'restricted'`. `IfcPolicy` (`ScopeDeclaration.ifc`) is what the
+caller declares once per agent:
+
+```ts
+scope: {
+  network: false,
+  filesystem: [],
+  credentials: [],
+  ifc: {
+    sources: { 'db.customers': 'confidential' },
+    sinkTrust: { 'internal.dashboard': 'confidential', 'public.webhook': 'public' },
+  },
+}
+```
+
+`TG08-confidential-source-to-untrusted-sink` fires when a call's `source`/`from`/`sourceId`/
+`readFrom` argument names a resource labeled confidential-or-higher in `ifc.sources`, AND its
+`sink`/`to`/`destination`/`sendTo`/`forwardTo` argument names a destination whose declared
+`ifc.sinkTrust` tier is lower than the source's label -- `deny` -- **or whose trust tier isn't
+declared in `sinkTrust` at all** -- `require-approval`, never a silent `allow`. This is the one
+property the rule commits to: an undeclared destination is treated as ambiguous, not trusted.
+
+**What this deliberately does NOT do**, disclosed rather than hidden -- see
+`classifier/information-flow.ts` / `classifier/information_flow.py`'s module docstring for the
+full writeup:
+
+- **No automatic label inference.** toolgovern cannot know that an argument is confidential or
+  that a destination is untrusted from the argument alone -- `sources`/`sinkTrust` are a real,
+  hand-declared labeling API the caller must maintain, not something this rule derives on its own.
+- **No cross-call taint tracking.** Each call is evaluated in isolation. If confidential data
+  read in one call is only handed to an untrusted sink two calls later, TG08 does not see that --
+  a real IFC system tracks a label across an entire flow graph, this evaluates one call's own
+  source/sink arguments.
+- **No reader/principal-scoped lattice.** One flat total order, not a set of readers or a
+  join/meet lattice over multiple simultaneous principals.
+- **No result-value inspection.** This evaluates a call's declared arguments, not the data a tool
+  call actually returns.
 
 ## The signed local audit trail
 

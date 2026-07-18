@@ -500,21 +500,88 @@ returns `true`.
   integration calls at its own MCP-connection point; it is not (yet) wired into a bundled MCP
   client wrapper of toolgovern's own.
 
+### 12. Information-flow control (TG08): a scoped primitive, not a FIDES-style IFC system
+
+**The gap.** Everything in TG01-TG05 answers "should this call happen" -- is this argument
+dangerous, is this path/host/credential in the caller's declared scope. None of it answers a
+categorically different question: given that a call is otherwise permitted, **can the data it
+touches flow to where it's going?** A tool call can read from a confidential source and hand that
+data to an untrusted destination in a single, individually-unremarkable call -- no shell pattern,
+no out-of-scope path, no undeclared host trips, because the call's arguments look fine in
+isolation. Microsoft Agent Framework's FIDES system (see
+[microsoft/agent-framework#6171](https://github.com/microsoft/agent-framework/pull/6171) and
+[#6860](https://github.com/microsoft/agent-framework/pull/6860), both shrutitople) answers this
+with a full confidentiality-label lattice tagged onto tools/data and tracked across an entire MCP
+gateway boundary, including automatic label inference from MCP tool annotations and gateway-side
+policy delegation.
+
+**The fix -- deliberately scoped down, not a reimplementation.** `ConfidentialityLabel`
+(`types.ts` / `types.py`) is a fixed, closed, ordered set (`public < internal < confidential <
+restricted`), and `IfcPolicy` (`ScopeDeclaration.ifc`) is a hand-declared source/sink labeling map
+the caller maintains -- not automatic inference. A new rule,
+`TG08-confidential-source-to-untrusted-sink` (`classifier/information-flow.ts` /
+`classifier/information_flow.py`), fires when a call's declared source argument names a resource
+labeled confidential-or-higher in `ifc.sources` AND its declared sink argument names a destination
+whose `ifc.sinkTrust` tier is lower -- `deny` -- or whose trust tier was never declared at all --
+`require-approval`, never a silent `allow`. That fail-closed-on-ambiguity behavior is proven by a
+dedicated test on each side (`information-flow.test.ts` /
+`test_classifier_information_flow.py`): a labeled-confidential source paired with an undeclared-
+trust sink comes back `require-approval`, not `allow`.
+
+**What this honestly does NOT do -- checked against the real issues above, not inflated:**
+
+- **No automatic label inference.** #6171's actual contribution is autolabeling MCP servers from
+  MCP tool annotations and GitHub MCP server hints, plus parsing per-result `_meta.ifc` labels
+  coming back from a tool call. TG08 does none of that -- it only evaluates labels the integrator
+  hand-declares in `IfcPolicy`. A call's own argument shape gives toolgovern no way to know a
+  resource is confidential or a destination is untrusted; it can only check what was told to it.
+  This is the single biggest gap between what TG08 does and what #6171 actually asks for.
+- **No MCP gateway integration.** #6860's actual contribution is delegating policy evaluation to
+  an external FIDES Gateway fronting MCP servers (`SecureMCPToolProxy(gateway_policy=True)`),
+  with a readers-lattice `ConfidentialityLabel` (`[PRIVATE]` + a `readers` frozenset) intersected
+  across gateway-parsed `_meta` labels including the top-level `"$"` scope. TG08 has no gateway
+  concept at all -- it is a per-call, in-process classifier rule, exactly like every other TG0x
+  rule; there is no MCP transport boundary it hooks into.
+- **No cross-call / session-level taint tracking.** Each call is evaluated in isolation. If
+  confidential data read in one call is only handed to an untrusted sink two calls later (stashed
+  in an intermediate variable, a tool result, or agent memory), TG08 does not see that -- the same
+  category of limitation TG06/TG07's missing cross-call session state already represents for the
+  rest of this classifier.
+- **No reader/principal-scoped lattice.** `ConfidentialityLabel` is one flat total order, not
+  #6860's set-valued `readers` frozenset intersected across principals, or a general join/meet
+  lattice.
+- **No result-value inspection / no `_meta.ifc` parsing.** TG08 evaluates a call's declared
+  source/sink _arguments_, not a tool's actual return value or any `_meta` envelope a real MCP
+  response might carry a label in.
+
+**Honest verdict against the two issues this was built from:** #6171 and #6860 are both real,
+shipped, substantially larger engineering efforts -- automatic MCP-annotation-based labeling, a
+readers-lattice label type, gateway-delegated policy evaluation, and `_meta.ifc` result-label
+parsing woven through MCP transport and framework export code. TG08 is not a smaller version of
+either PR; it is the one primitive both of them presuppose and neither of them had to build from
+scratch inside toolgovern's classifier: a closed label type, a place to declare source/sink
+labels, and one rule that fails closed on an undeclared sink. Anyone wanting what #6171 or #6860
+actually deliver -- MCP-native autolabeling, a gateway-delegated policy boundary, a
+readers-lattice label with set intersection -- needs meaningfully more than this scoped addition;
+that is a genuinely bigger, architecturally different piece of work than a classifier rule can
+close, and is stated here plainly rather than papered over.
+
 ## Summary
 
-| #   | Area                                                                           | Status                                                                                                                                         |
-| --- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | TG01 argument obfuscation (base64, quote-splitting, invisible Unicode, `$IFS`) | Fixed + tested                                                                                                                                 |
-| 2   | ReDoS in `TG01-rm-rf`                                                          | Fixed + tested                                                                                                                                 |
-| 3   | Approval handler exception skips trace / leaks raw error                       | Fixed + tested                                                                                                                                 |
-| 4   | Trace tamper-evidence (unkeyed default vs. attacker who recomputes the hash)   | Documented limitation (pre-existing) + proven with a test + optional HMAC-keyed signing shipped as a real mitigation                           |
-| 5   | YAML policy-loader RCE risk                                                    | Reviewed, confirmed safe, no change needed                                                                                                     |
-| 6   | CLI path-argument traversal                                                    | Reviewed, not applicable, no change needed                                                                                                     |
-| 7   | Filesystem-scope path canonicalization                                         | Documented known limitation, no fix in v0.1                                                                                                    |
-| 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                                                      |
-| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope                                        |
-| 10  | TG03 hostname arguments resolving to a private/loopback/metadata address       | Fixed + tested (both languages); DNS-rebinding TOCTOU narrowed, not eliminated; redirect-chain revalidation remains a separate, still-open gap |
-| 11  | MCP-server trust boundary (origin allowlist + manifest signature verification) | Fixed + tested (both languages); sigstore/keyless verification, key revocation, and post-connection re-verification remain out of scope        |
+| #   | Area                                                                           | Status                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | TG01 argument obfuscation (base64, quote-splitting, invisible Unicode, `$IFS`) | Fixed + tested                                                                                                                                                                               |
+| 2   | ReDoS in `TG01-rm-rf`                                                          | Fixed + tested                                                                                                                                                                               |
+| 3   | Approval handler exception skips trace / leaks raw error                       | Fixed + tested                                                                                                                                                                               |
+| 4   | Trace tamper-evidence (unkeyed default vs. attacker who recomputes the hash)   | Documented limitation (pre-existing) + proven with a test + optional HMAC-keyed signing shipped as a real mitigation                                                                         |
+| 5   | YAML policy-loader RCE risk                                                    | Reviewed, confirmed safe, no change needed                                                                                                                                                   |
+| 6   | CLI path-argument traversal                                                    | Reviewed, not applicable, no change needed                                                                                                                                                   |
+| 7   | Filesystem-scope path canonicalization                                         | Documented known limitation, no fix in v0.1                                                                                                                                                  |
+| 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                                                                                                    |
+| 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope                                                                                      |
+| 10  | TG03 hostname arguments resolving to a private/loopback/metadata address       | Fixed + tested (both languages); DNS-rebinding TOCTOU narrowed, not eliminated; redirect-chain revalidation remains a separate, still-open gap                                               |
+| 11  | MCP-server trust boundary (origin allowlist + manifest signature verification) | Fixed + tested (both languages); sigstore/keyless verification, key revocation, and post-connection re-verification remain out of scope                                                      |
+| 12  | Information-flow control (TG08: confidential-source-to-untrusted-sink)         | Added + tested (both languages), scoped deliberately; not a FIDES-style MCP gateway IFC system -- no automatic label inference, no gateway, no cross-call taint tracking, no readers lattice |
 
 Nothing in this document should be read as "toolgovern makes a gated agent session safe." A gated
 call means it was evaluated against the current rule set and, for the classes of bypass covered
@@ -588,3 +655,17 @@ of this document: disclosed, not silently omitted.
   still change it between this check and the tool's own HTTP client's later connect call.
   Eliminating that race needs the HTTP client to connect to the exact address this check
   validated (DNS pinning), which is connection-layer behavior `governTool()` has no hook into.
+
+- **Full information-flow control (a FIDES-style MCP gateway IFC system).** Finding #12's TG08
+  adds one real, scoped primitive -- a caller-declared source/sink label check for a single call,
+  failing closed on an undeclared sink. It is not a substitute for what Microsoft Agent Framework's
+  FIDES actually does: automatic confidentiality labeling from MCP tool/server annotations, label
+  propagation tracked across an entire MCP gateway boundary and multiple hops/calls, a
+  reader-scoped label lattice, and gateway-delegated policy evaluation. A confidential value read
+  in one call and only forwarded to an untrusted sink several calls later -- through an
+  intermediate variable, a tool result, or agent memory -- is invisible to TG08, which evaluates
+  one call's own declared arguments and nothing about prior calls. Building the fuller system is a
+  materially bigger, architecturally different effort (session-level taint tracking, a real label
+  lattice, MCP-transport-level label propagation) than a per-call classifier rule can close; see
+  finding #12 for the full, honest comparison against the two real upstream issues this was scoped
+  from.

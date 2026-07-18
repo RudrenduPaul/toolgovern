@@ -20,20 +20,64 @@ export type Decision = 'allow' | 'deny' | 'require-approval';
  */
 export type AgentIdSource = 'explicit' | 'fallback';
 
-/** The five v0.1 risk-rule categories. TG06/TG07 need cross-call session state and ship later. */
-export type RuleCategory = 'TG01' | 'TG02' | 'TG03' | 'TG04' | 'TG05';
+/**
+ * The v0.1-and-later risk-rule categories. TG06 (high-risk tool combinations across a session)
+ * and TG07 (retrying a denied call with modified arguments) are reserved names for two rule
+ * categories that still need cross-call session state this classifier does not yet keep -- see
+ * `README.md`'s rule-pack table -- and have deliberately not been claimed here. TG08 (information-
+ * flow control) is per-call, needs no session state, and ships now; see
+ * `classifier/information-flow.ts`.
+ */
+export type RuleCategory = 'TG01' | 'TG02' | 'TG03' | 'TG04' | 'TG05' | 'TG08';
+
+/**
+ * A confidentiality label for information-flow-control (IFC) checks (TG08): a fixed, closed,
+ * ordered set from least to most sensitive -- `'public'` < `'internal'` < `'confidential'` <
+ * `'restricted'`. Closed rather than free-form so "is this destination trusted enough for this
+ * source" is a well-defined rank comparison, not a string an operator could mistype or invent a
+ * new, incomparable tier for. This is deliberately a much smaller primitive than a real IFC
+ * system's label lattice (see `classifier/information-flow.ts`'s doc comment for what is out of
+ * scope): one flat total order, no set-valued labels, no per-reader/per-principal lattice.
+ */
+export type ConfidentialityLabel = 'public' | 'internal' | 'confidential' | 'restricted';
+
+/**
+ * The caller-declared information-flow-control labeling for one agent's tool wrapping, consumed
+ * by TG08 (`classifier/information-flow.ts`). This is a hand-declared labeling API, not automatic
+ * inference -- toolgovern has no way to know a resource's real confidentiality level or a
+ * destination's real trust tier from a bare tool-call argument, so TG08 only ever evaluates
+ * labels the caller explicitly declares here.
+ *
+ * `sources` maps a resource identifier (whatever string a call's declared source argument names --
+ * a table/dataset name, a file path, a hostname, an upstream tool name) to the
+ * `ConfidentialityLabel` that resource carries. `sinkTrust` maps a destination identifier
+ * (whatever string a call's declared sink argument names -- a hostname, a channel, a downstream
+ * tool name) to the highest `ConfidentialityLabel` that destination is trusted to receive.
+ * Matching is exact, trailing-path-segment, or substring -- the same permissive style
+ * `isCredentialGranted()` already uses for `ScopeDeclaration.credentials`.
+ *
+ * A destination absent from `sinkTrust` is not "declared untrusted" -- it is simply undeclared,
+ * which TG08 treats as an ambiguous case requiring human approval, never a silent allow.
+ */
+export interface IfcPolicy {
+  readonly sources: Readonly<Record<string, ConfidentialityLabel>>;
+  readonly sinkTrust: Readonly<Record<string, ConfidentialityLabel>>;
+}
 
 /**
  * A per-agent declared scope. `network` is either `false` (no network access at all), `true`
  * (unrestricted -- discouraged, but supported for local/dev use), or an explicit allowlist of
  * hostnames. `filesystem` is a list of path prefixes the agent may read/write/delete under.
  * `credentials` is a list of credential identifiers (file paths, secret names) the agent may
- * access.
+ * access. `ifc`, when supplied, declares the confidentiality/trust labeling TG08 evaluates;
+ * omitted entirely (the default) means TG08 never fires for this agent -- opt-in, not a change
+ * in behavior for existing callers who never declare it.
  */
 export interface ScopeDeclaration {
   readonly network: boolean | readonly string[];
   readonly filesystem: readonly string[];
   readonly credentials: readonly string[];
+  readonly ifc?: IfcPolicy;
 }
 
 /** Rule-level overrides a policy file can apply on top of the shipped rule pack defaults. */

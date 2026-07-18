@@ -51,6 +51,13 @@ Out of scope for v0.1 (documented, not hidden):
 - TG06 (high-risk tool combination) and TG07 (repeated-denial/anomalous retry) are not shipped
   yet -- they need cross-call session state the current stateless classifier does not model. A
   report that one of these detection classes is missing is a known gap, not a new finding.
+- TG08 (information-flow control) is a scoped, caller-declared source/sink label check for a
+  single call -- not a FIDES-style MCP gateway IFC system. It has no automatic label inference,
+  no cross-call taint tracking, and no reader-scoped label lattice; see
+  `docs/security-model.md` (finding #12) for the full, honest comparison against what a fuller
+  IFC system would need. A report that confidential data flowed through multiple calls before
+  reaching an untrusted sink, or that a label was never inferred automatically, is a known,
+  documented scope boundary, not a new finding.
 - A gate result of `allow` is not a claim that the call is safe -- it means the call was checked
   against the current, finite rule set. A rule pack that is incomplete is an expected v0.1
   limitation; a rule that silently fails to run at all is a bug and in scope.

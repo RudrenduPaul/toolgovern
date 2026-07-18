@@ -88,9 +88,13 @@ microbenchmarks are sensitive to whatever else the machine is doing at the momen
 why this file says "run it yourself" rather than asserting a single portable number. The table
 above is the most recent measurement and is what's cited in the top-level README.
 
-This measures `classify()` alone -- every call runs the full 34-rule pack (there is no
-per-category dispatch or short-circuiting), so latency does not vary meaningfully by which category
-a given call happens to belong to. It does not include the wrapped tool's own execution time, and
+This measures `classify()` alone -- every call runs the full rule pack (there is no per-category
+dispatch or short-circuiting), so latency does not vary meaningfully by which category a given
+call happens to belong to. The rule pack has since grown to 35 (TG08 information-flow control was
+added after this measurement); this benchmark has not been re-run against that count, so the
+numbers above should be read as "34-rule-pack, 2026-07-12" rather than current -- re-run
+`npm run bench:latency` yourself for a number against today's registry rather than trusting an
+un-remeasured figure here. It does not include the wrapped tool's own execution time, and
 it does not include trace-write time (`TraceWriter.append()` is a separate, async, file-append
 operation `governTool()` awaits after the classifier decision, not part of this number). All of it
 runs in-process with no network round-trip, on whatever machine runs the command -- these are not

@@ -65,6 +65,21 @@ issue with the package itself -- see the PR for the real-time status.
 
 ### Added
 
+- `TG08-confidential-source-to-untrusted-sink` -- a new rule category, information-flow control:
+  fires when a call reads from a source labeled confidential-or-higher (caller-declared via a new
+  `IfcPolicy`/`ScopeDeclaration.ifc` field, a hand-declared labeling API, not automatic inference)
+  and writes/sends to a destination whose declared trust tier is lower (`deny`) or was never
+  declared at all (`require-approval`, fail-closed on ambiguity, never a silent `allow`). New
+  `ConfidentialityLabel` closed type (`public < internal < confidential < restricted`) in
+  `types.ts`/`types.py`. Ported to both languages (`classifier/information-flow.ts` /
+  `classifier/information_flow.py`), bringing the synchronous rule count to 35 (TS) / 36 (Python,
+  which also folds in `TG03-dns-resolves-private`). Scoped deliberately against
+  [microsoft/agent-framework#6171](https://github.com/microsoft/agent-framework/pull/6171) and
+  [#6860](https://github.com/microsoft/agent-framework/pull/6860) (both shrutitople): this is the
+  smallest real primitive that lets a genuine label-propagation check exist, not a reimplementation
+  of FIDES's automatic MCP-annotation labeling, gateway-delegated policy evaluation, or
+  readers-lattice label type -- see `docs/security-model.md` finding #12 for the full, honest
+  comparison against what those two PRs actually deliver.
 - `TG03-dns-resolves-private` -- closes the TG03 network-egress sub-gap where a **hostname**
   argument that _resolves_ to a loopback/RFC1918/link-local/cloud-metadata address (e.g.
   `internal-alias.attacker.io -> 127.0.0.1`) sailed through undetected, since the existing
