@@ -7,7 +7,8 @@ Route [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) 
 hook -- shell, filesystem, network, and credential access evaluated (allow, deny, or
 require-approval) before the SDK lets a tool run, with no per-tool wrapping required.
 
-The toolgovern core is live on PyPI (`pip install toolgovern`). This adapter package is not yet
+The toolgovern core is live on PyPI as `toolgovern-cli` (`pip install toolgovern-cli`; the module
+you import stays `toolgovern`). This adapter package is not yet
 published there; install it from source, which pulls the PyPI core in as a normal dependency:
 
 ```bash

@@ -8,7 +8,8 @@ execute, and surface a `require-approval` verdict through Agent Framework's own
 `function_approval_request` / `function_approval_response` flow instead of a separate side
 channel.
 
-The toolgovern core is live on PyPI (`pip install toolgovern`). This adapter package is not yet
+The toolgovern core is live on PyPI as `toolgovern-cli` (`pip install toolgovern-cli`; the module
+you import stays `toolgovern`). This adapter package is not yet
 published there; install it from source, which pulls the PyPI core in as a normal dependency:
 
 ```bash

@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## Package rename (no version bump) - 2026-07-18 - PyPI project renamed to toolgovern-cli
+
+The PyPI project name changed from `toolgovern` to
+[`toolgovern-cli`](https://pypi.org/project/toolgovern-cli/) for naming consistency across this
+account's published packages, staying at version 0.1.1 (the rename itself changed no code).
+`pip install toolgovern-cli` is the current, correct install command -- `import toolgovern` inside
+your code is unchanged, since only the PyPI distribution name moved, not the Python module name.
+The old `toolgovern` PyPI project got one final 0.1.2 release with a README notice pointing here,
+then stopped receiving updates; it is not deleted (PyPI names can never be reused) but should not
+be installed for new work.
+
 ## [Python 0.1.1] - 2026-07-18 - dependency security fixes
 
 Bumped `cryptography` to `>=48.0.1,<49` (was `>=41,<47`), fixing

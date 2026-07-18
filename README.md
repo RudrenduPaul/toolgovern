@@ -5,15 +5,16 @@ it executes, not after something already went wrong.
 
 [![CI](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml/badge.svg)](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/toolgovern.svg)](https://www.npmjs.com/package/toolgovern)
-[![PyPI version](https://img.shields.io/pypi/v/toolgovern.svg)](https://pypi.org/project/toolgovern/)
+[![PyPI version](https://img.shields.io/pypi/v/toolgovern-cli.svg)](https://pypi.org/project/toolgovern-cli/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 toolgovern ships two independent, equally first-class packages -- pick whichever fits your
 toolchain, or install both. Neither is deprecated in favor of the other; they run the same 35-rule
 synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
 -- see below), apply the same default-deny scope-inheritance model, and write the same signed
-trace format. Both packages are live: the npm package, and the Python port, published to PyPI as
-of 0.1.0 (see [`python/README.md`](./python/README.md) for the Python-specific walkthrough).
+trace format. Both packages are live: the npm package, and the Python port, published to PyPI
+under the name `toolgovern-cli` (see [`python/README.md`](./python/README.md) for the
+Python-specific walkthrough).
 
 ```bash
 # npm -- JavaScript/TypeScript core library + CLI
@@ -21,7 +22,7 @@ npm install toolgovern
 npm install --save-dev toolgovern-cli
 
 # PyPI -- Python core library + CLI (genuine port, not a wrapper around the Node binary)
-pip install toolgovern
+pip install toolgovern-cli
 ```
 
 The Python package's console script is `toolgovern-cli`, matching the npm CLI's command name --
@@ -877,8 +878,8 @@ server dependency and nothing to sign up for.
 
 **Does it work with Python or .NET agent frameworks?**
 Yes, both have a genuine core port, not a bridge that shells out to the Node binary. The Python
-port is published to PyPI (`pip install toolgovern`, see [`python/README.md`](./python/README.md))
-and its five framework integrations (LangGraph, CrewAI, AutoGen, Microsoft Agent Framework, Claude
+port is published to PyPI as `toolgovern-cli` (`pip install toolgovern-cli`, see
+[`python/README.md`](./python/README.md)) and its five framework integrations (LangGraph, CrewAI, AutoGen, Microsoft Agent Framework, Claude
 Agent SDK) are source-only for now, install from source; the .NET port (`dotnet/ToolGovern`,
 source-available, not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
 [Framework integration](#framework-integration) above for the full list and what's actually

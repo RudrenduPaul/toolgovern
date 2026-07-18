@@ -5,7 +5,8 @@ calls through [toolgovern](https://github.com/RudrenduPaul/toolgovern)'s `govern
 shell, filesystem, network, and credential access evaluated (allow, deny, or require-approval)
 before your real tool runs.
 
-The toolgovern core is live on PyPI (`pip install toolgovern`). This adapter package is not yet
+The toolgovern core is live on PyPI as `toolgovern-cli` (`pip install toolgovern-cli`; the module
+you import stays `toolgovern`). This adapter package is not yet
 published there; install it from source, which pulls the PyPI core in as a normal dependency:
 
 ```bash

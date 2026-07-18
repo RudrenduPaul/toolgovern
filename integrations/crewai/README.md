@@ -8,10 +8,11 @@ Route [CrewAI](https://github.com/crewAIInc/crewAI) tool calls through
 deny, or require-approval) before your real tool runs.
 
 This package is not yet published to PyPI. Install it from source, alongside a real PyPI install
-of the toolgovern core it depends on:
+of the toolgovern core it depends on (published as `toolgovern-cli`; the module you import stays
+`toolgovern`):
 
 ```bash
-pip install toolgovern
+pip install toolgovern-cli
 git clone https://github.com/RudrenduPaul/toolgovern.git
 cd toolgovern
 pip install -e integrations/crewai
