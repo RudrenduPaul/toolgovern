@@ -8,3 +8,8 @@ npm-debug.log*
 .env
 .env.local
 *.jsonl.tmp
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/

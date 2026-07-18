@@ -24,6 +24,7 @@ import type { ScopeRegistry } from '../scoping/inheritance-enforcer.js';
 import { isValidAgentId } from '../scoping/scope-declaration.js';
 import type { TraceWriter } from '../trace/trace-writer.js';
 import { IdempotencyCache, type IdempotencyOptions } from './idempotency-cache.js';
+import type { PendingApprovalRegistry, ResolvePendingInput } from '../approval/pending-registry.js';
 
 export interface ToolDefinition<
   Args extends Record<string, unknown> = Record<string, unknown>,
@@ -43,6 +44,12 @@ export interface GateDecisionInfo {
   readonly decision: Decision;
   readonly firedRules: readonly RuleMatch[];
   readonly scope: ScopeDeclaration;
+  /** The durable `PendingApprovalRegistry` id for this decision, when `options.pendingApprovals`
+   *  was supplied and this decision was `require-approval`. Lets an `onDecision` listener
+   *  correlate the in-process (synchronous) outcome with the durable record a webhook/CLI/review
+   *  queue can later resolve via `resolvePending()`. Absent for every other decision, and absent
+   *  entirely when no `pendingApprovals` registry was configured. */
+  readonly pendingId?: string;
 }
 
 /** What an `ApprovalHandler` resolves to when it wants to record who made the call, not just
@@ -70,6 +77,21 @@ export interface GovernToolOptions extends Policy {
   /** How long to wait for `onApprovalRequired` before treating it as a denial. Defaults to 30s,
    *  matching the human-in-the-loop timeout shown in the product spec's sample gate output. */
   readonly approvalTimeoutMs?: number;
+  /**
+   * Optional durable registry for `require-approval` decisions. When supplied, every
+   * `require-approval` decision is persisted here (via `registerPending()`) BEFORE
+   * `onApprovalRequired` (if any) is invoked -- so a caller who is not the in-process handler (a
+   * webhook, a CLI command, a human review queue) can resolve the same decision later via
+   * `resolvePending()`, independent of this call's own 30-second synchronous window. Once the
+   * synchronous path resolves (approved, denied, timed out, or handler-threw), that outcome is
+   * reflected back into the registry so the entry reads `'resolved'` and a later out-of-band
+   * `resolvePending()` call correctly gets `'already-resolved'` rather than re-deciding (or, for
+   * a side-effecting tool, re-executing) the same call twice. Omitted entirely -- the default --
+   * leaves `governTool()`'s behavior completely unchanged: the synchronous `onApprovalRequired`
+   * path is the only path, exactly as before this option existed. See
+   * `approval/pending-registry.ts` and `resumePendingApproval()` below.
+   */
+  readonly pendingApprovals?: PendingApprovalRegistry;
   /** Fires after every gate decision, allow/deny/require-approval alike, after the trace entry
    *  (if any) has been written. Useful for a live console/log, not part of the gate itself. */
   readonly onDecision?: (info: GateDecisionInfo) => void;
@@ -158,24 +180,51 @@ function normalizeApprovalResult(result: boolean | ApprovalOutcome): ApprovalOut
   return typeof result === 'boolean' ? { approved: result } : result;
 }
 
+/** What actually happened when `governTool()` tried to resolve a `require-approval` decision
+ *  through the synchronous in-process path. `answered: true` means `handler` itself genuinely
+ *  produced a result before the timeout -- a real decision, whether allow or deny. `answered:
+ *  false` covers every case where nothing genuine came back: no handler was provided, the
+ *  handler threw, or it simply didn't resolve before `timeoutMs`. This distinction is what lets
+ *  `execute()` decide whether a `pendingApprovals` registry entry should be closed out as
+ *  terminally resolved (a real decision was made) or left `'pending'` for a later out-of-band
+ *  `resolvePending()`/`resumePendingApproval()` call to actually resolve (nothing was ever
+ *  decided synchronously -- this call merely gave up waiting within its own window). Either way,
+ *  THIS `execute()` invocation still fails closed (denies) when `answered` is `false`, exactly as
+ *  before this distinction existed -- only the registry's own bookkeeping changes. */
+interface ApprovalResolution {
+  readonly outcome: ApprovalOutcome;
+  readonly answered: boolean;
+}
+
 async function resolveApproval(
   handler: ApprovalHandler | undefined,
   info: GateDecisionInfo,
   timeoutMs: number,
-): Promise<ApprovalOutcome> {
-  if (!handler) return { approved: false };
+): Promise<ApprovalResolution> {
+  if (!handler) return { outcome: { approved: false }, answered: false };
   // A handler that throws (sync or async) must fail closed exactly like "no handler" or "timed
   // out" -- it must NOT propagate out of governTool(), because that would skip the trace-append
   // call below and surface a raw, unrelated error instead of ToolGovernDenialError. An
   // unanswerable approval request is a denial, not an application crash.
-  const handlerResult = Promise.resolve()
+  const handlerResult: Promise<ApprovalResolution> = Promise.resolve()
     .then(() => handler(info))
-    .then(normalizeApprovalResult)
-    .catch((): ApprovalOutcome => ({ approved: false }));
-  const timeout = new Promise<ApprovalOutcome>((resolve) => {
-    setTimeout(() => resolve({ approved: false }), timeoutMs);
+    .then((result): ApprovalResolution => ({
+      outcome: normalizeApprovalResult(result),
+      answered: true,
+    }))
+    .catch((): ApprovalResolution => ({ outcome: { approved: false }, answered: false }));
+  let timeoutHandle: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<ApprovalResolution>((resolve) => {
+    timeoutHandle = setTimeout(
+      () => resolve({ outcome: { approved: false }, answered: false }),
+      timeoutMs,
+    );
   });
-  return Promise.race([handlerResult, timeout]);
+  try {
+    return await Promise.race([handlerResult, timeout]);
+  } finally {
+    clearTimeout(timeoutHandle!);
+  }
 }
 
 /**
@@ -240,6 +289,25 @@ export function governTool<Args extends Record<string, unknown>, Result>(
         decision = defaultDecision;
       }
 
+      // Registered BEFORE `onApprovalRequired` is invoked (or even looked at), so a durable
+      // record of this decision exists regardless of whether the synchronous handler answers,
+      // times out, throws, or was never provided at all -- see `pendingApprovals` above.
+      let pendingId: string | undefined;
+      if (decision === 'require-approval' && options.pendingApprovals) {
+        pendingId = options.pendingApprovals.registerPending({
+          agentId,
+          sessionId,
+          coordinatorId,
+          tool: tool.name,
+          args,
+          scope: effectiveScope,
+          firedRules,
+          agentIdSource,
+          disabledRules,
+          downgradeToApproval,
+        });
+      }
+
       const info: GateDecisionInfo = {
         agentId,
         sessionId,
@@ -249,14 +317,41 @@ export function governTool<Args extends Record<string, unknown>, Result>(
         decision,
         firedRules,
         scope: effectiveScope,
+        pendingId,
       };
 
       let finalDecision: Decision = decision;
       let approvedBy: string | undefined;
       if (decision === 'require-approval') {
-        const outcome = await resolveApproval(options.onApprovalRequired, info, approvalTimeoutMs);
+        const { outcome, answered } = await resolveApproval(
+          options.onApprovalRequired,
+          info,
+          approvalTimeoutMs,
+        );
         finalDecision = outcome.approved ? 'allow' : 'deny';
         approvedBy = outcome.approvedBy;
+
+        // Only reflect this outcome back into the durable registry when the synchronous handler
+        // actually, genuinely answered (`answered === true`) -- a real human (or automation)
+        // decision, allow or deny, is terminal: a later resolvePending()/resumePendingApproval()
+        // call must get 'already-resolved', never a chance to re-decide or (for a side-effecting
+        // tool) re-execute a call this process already finished with.
+        //
+        // When NOTHING genuinely answered (no handler was configured, the handler threw, or it
+        // simply didn't resolve within `approvalTimeoutMs`), this specific `execute()` call still
+        // fails closed exactly as before -- but the registry entry is deliberately left
+        // `'pending'`. That is the entire point of `pendingApprovals`: a caller running with a
+        // short/no synchronous window relies on this call denying quickly while the REAL approval
+        // is expected to arrive later and out of band (a webhook, a CLI command, a human review
+        // queue) via `resolvePending()`/`resumePendingApproval()` -- reflecting a fail-closed
+        // default back as if it were a real decision would make that async path permanently
+        // unreachable.
+        if (pendingId && options.pendingApprovals && answered) {
+          await options.pendingApprovals.resolvePending(pendingId, {
+            decision: finalDecision,
+            approvedBy,
+          });
+        }
       }
 
       if (options.trace) {
@@ -307,4 +402,134 @@ export function governTool<Args extends Record<string, unknown>, Result>(
       }
     },
   };
+}
+
+/** Raised by `resumePendingApproval()` when the `pendingId` it was given cannot be resolved to a
+ *  fresh, actionable decision -- either because it (or its alias) is unrecognized, because it was
+ *  already resolved by an earlier call (the synchronous path timing out, or a previous resume),
+ *  or because it expired. This is deliberately a different error from `ToolGovernDenialError`:
+ *  a denial is a real classifier/human verdict on the call; this is "there was nothing here left
+ *  to resolve," which callers (a webhook handler, say) generally need to handle differently (e.g.
+ *  respond 409/404 rather than "your request was denied"). */
+export class PendingApprovalNotResolvableError extends Error {
+  constructor(
+    public readonly pendingId: string,
+    public readonly status: 'not-found' | 'already-resolved' | 'expired',
+  ) {
+    super(
+      `toolgovern: pending approval ${JSON.stringify(pendingId)} could not be resolved (${status}).`,
+    );
+    this.name = 'PendingApprovalNotResolvableError';
+  }
+}
+
+/** Optional wiring `resumePendingApproval()` accepts -- deliberately the same shape of
+ *  `trace`/`onDecision`/`onToolResult` options `governTool()` itself accepts, so a caller resuming
+ *  a pending approval gets the same trace/observability behavior as the original synchronous
+ *  call would have. */
+export interface ResumePendingApprovalOptions {
+  readonly trace?: TraceWriter;
+  readonly onDecision?: (info: GateDecisionInfo) => void;
+  readonly onToolResult?: (result: unknown, ctx: RuleContext) => unknown;
+}
+
+/**
+ * Closes the loop `pendingApprovals` opens: given the SAME `tool` definition `governTool()` was
+ * originally wrapping, a `PendingApprovalRegistry` that call registered its `require-approval`
+ * decision in, the `pendingId` it was given back, and a resolution (allow/deny, optionally with
+ * `editedArgs`), this resolves the pending approval and -- if and only if the resolution (after
+ * any edited-args re-classification) comes back `allow` -- actually invokes `tool.execute()` with
+ * the effective arguments, appends one trace entry with `approvedBy` populated exactly as the
+ * synchronous path does, and returns the tool's result.
+ *
+ * This is the piece of the "durable, resumable approval" story that runs OUTSIDE the original
+ * `governTool(...).execute()` call -- from a webhook handler, a CLI command, or a long-running
+ * human review queue's worker loop, any time after that original call already returned (denied,
+ * most likely, if nothing answered its 30-second synchronous window). It does not, and cannot,
+ * resume that ORIGINAL `execute()` call's own promise -- that promise already settled. What it
+ * does is perform the actual, real, gated execution the human's later decision authorizes,
+ * through the identical classify -> gate -> execute -> trace pipeline, so an edited/approved call
+ * still cannot skip re-classification (see `PendingApprovalRegistry#resolvePending`) and still
+ * produces a real audit trail.
+ *
+ * Throws `PendingApprovalNotResolvableError` if the pending approval is unrecognized, already
+ * resolved, or expired -- never silently does nothing. Throws `ToolGovernDenialError` if the
+ * resolution (or its edited-args re-classification) is a `deny` -- `tool.execute()` is never
+ * called in that case, exactly like a live `governTool()` denial.
+ */
+export async function resumePendingApproval<Args extends Record<string, unknown>, Result>(
+  tool: ToolDefinition<Args, Result>,
+  registry: PendingApprovalRegistry,
+  pendingId: string,
+  resolution: ResolvePendingInput,
+  options: ResumePendingApprovalOptions = {},
+): Promise<Result> {
+  const pending = registry.get(pendingId);
+  const outcome = await registry.resolvePending(pendingId, resolution);
+
+  if (outcome.status !== 'resolved') {
+    throw new PendingApprovalNotResolvableError(pendingId, outcome.status);
+  }
+
+  const effectiveArgs = (outcome.args ?? pending?.args ?? {}) as Args;
+  const firedRules = outcome.firedRules ?? pending?.firedRules ?? [];
+  const scope = pending?.scope ?? { network: false, filesystem: [], credentials: [] };
+  const finalDecision: Decision = outcome.finalDecision === 'allow' ? 'allow' : 'deny';
+
+  const info: GateDecisionInfo = {
+    agentId: pending?.agentId ?? 'default-agent',
+    sessionId: pending?.sessionId ?? 'default-session',
+    coordinatorId: pending?.coordinatorId,
+    tool: pending?.tool ?? tool.name,
+    args: effectiveArgs,
+    decision: finalDecision,
+    firedRules,
+    scope,
+    pendingId,
+  };
+
+  if (options.trace) {
+    const ruleFiredIds =
+      firedRules.length > 0
+        ? firedRules.map((r) => r.ruleId)
+        : finalDecision !== 'allow'
+          ? ['policy-default-decision']
+          : [];
+    await options.trace.append({
+      sessionId: info.sessionId,
+      agentId: info.agentId,
+      tool: info.tool,
+      args: effectiveArgs,
+      decision: finalDecision,
+      ruleFired: ruleFiredIds,
+      declaredScope: scope,
+      approvedBy: outcome.approvedBy,
+      agentIdSource: pending?.agentIdSource,
+    });
+  }
+
+  options.onDecision?.(info);
+
+  if (finalDecision === 'deny') {
+    throw new ToolGovernDenialError(info);
+  }
+
+  const ruleContext: RuleContext = {
+    agentId: info.agentId,
+    sessionId: info.sessionId,
+    coordinatorId: info.coordinatorId,
+    tool: info.tool,
+    args: effectiveArgs,
+    scope,
+  };
+
+  try {
+    const result = await tool.execute(effectiveArgs);
+    return options.onToolResult ? (options.onToolResult(result, ruleContext) as Result) : result;
+  } catch (error) {
+    if (options.onToolResult) {
+      return options.onToolResult(error, ruleContext) as Result;
+    }
+    throw error;
+  }
 }

@@ -25,6 +25,18 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
+from .approval import (
+    ApprovalResolutionDecision,
+    PendingApproval,
+    PendingApprovalAliasConflictError,
+    PendingApprovalRegistry,
+    PendingApprovalResolution,
+    PendingApprovalStatus,
+    ResolvePendingInput,
+    ResolvePendingOutcome,
+    ResolvePendingStatus,
+    UnknownPendingApprovalError,
+)
 from .classifier import (
     ClassifyOptions,
     classify,
@@ -43,9 +55,12 @@ from .middleware import (
     IdempotencyCache,
     IdempotencyOptions,
     InvalidAgentIdError,
+    PendingApprovalNotResolvableError,
+    ResumePendingApprovalOptions,
     ToolDefinition,
     ToolGovernDenialError,
     govern_tool,
+    resume_pending_approval,
 )
 from .policy import PolicyValidationError, PolicyValidationResult, as_policy, load_policy, validate_policy
 from .scoping import (
@@ -115,9 +130,23 @@ __all__ = [
     "IdempotencyCache",
     "IdempotencyOptions",
     "InvalidAgentIdError",
+    "PendingApprovalNotResolvableError",
+    "ResumePendingApprovalOptions",
     "ToolDefinition",
     "ToolGovernDenialError",
     "govern_tool",
+    "resume_pending_approval",
+    # approval
+    "ApprovalResolutionDecision",
+    "PendingApproval",
+    "PendingApprovalAliasConflictError",
+    "PendingApprovalRegistry",
+    "PendingApprovalResolution",
+    "PendingApprovalStatus",
+    "ResolvePendingInput",
+    "ResolvePendingOutcome",
+    "ResolvePendingStatus",
+    "UnknownPendingApprovalError",
     # classifier
     "ClassifyOptions",
     "classify",

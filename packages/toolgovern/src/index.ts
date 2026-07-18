@@ -13,3 +13,4 @@ export * from './classifier/index.js';
 export * from './scoping/index.js';
 export * from './trace/index.js';
 export * from './policy/index.js';
+export * from './approval/pending-registry.js';

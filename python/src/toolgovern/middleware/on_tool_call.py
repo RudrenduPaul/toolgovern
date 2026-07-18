@@ -27,6 +27,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 
+from ..approval.pending_registry import PendingApprovalRegistry, ResolvePendingInput
 from ..classifier import ClassifyOptions, classify
 from ..scoping.inheritance_enforcer import ScopeRegistry, SpawnSubAgentParams
 from ..scoping.scope_declaration import is_valid_agent_id
@@ -68,6 +69,12 @@ class GateDecisionInfo:
     fired_rules: Sequence[RuleMatch]
     scope: ScopeDeclaration
     coordinator_id: Optional[str] = None
+    pending_id: Optional[str] = None
+    """The durable PendingApprovalRegistry id for this decision, when options.pending_approvals
+    was supplied and this decision was require-approval. Lets an on_decision listener correlate
+    the in-process (synchronous) outcome with the durable record a webhook/CLI/review queue can
+    later resolve via resolve_pending(). Absent for every other decision, and absent entirely when
+    no pending_approvals registry was configured."""
 
 
 @dataclass(frozen=True)
@@ -138,6 +145,19 @@ class GovernToolOptions:
     means every require-approval decision is denied (fail-closed) -- there is no such thing as
     an implicit approval."""
     approval_timeout_ms: int = _DEFAULT_APPROVAL_TIMEOUT_MS
+    pending_approvals: Optional[PendingApprovalRegistry] = None
+    """Optional durable registry for require-approval decisions. When supplied, every
+    require-approval decision is persisted here (via register_pending()) BEFORE
+    on_approval_required (if any) is invoked -- so a caller who is not the in-process handler (a
+    webhook, a CLI command, a human review queue) can resolve the same decision later via
+    resolve_pending(), independent of this call's own synchronous window. Once the synchronous
+    path genuinely answers (a real handler decision, not a fail-closed default), that outcome is
+    reflected back into the registry so the entry reads 'resolved' and a later out-of-band
+    resolve_pending() call correctly gets 'already-resolved' rather than re-deciding (or, for a
+    side-effecting tool, re-executing) the same call twice. A fail-closed default (no handler, a
+    timeout, or a throwing handler) deliberately does NOT close out the registry entry -- see
+    execute()'s wiring below and resume_pending_approval(). Omitted entirely -- the default --
+    leaves govern_tool()'s behavior completely unchanged."""
     on_decision: Optional[Callable[[GateDecisionInfo], None]] = None
     """Fires after every gate decision, allow/deny/require-approval alike, after the trace
     entry (if any) has been written."""
@@ -188,24 +208,45 @@ def _normalize_approval_result(result: ApprovalHandlerResult) -> ApprovalOutcome
     return result
 
 
+@dataclass(frozen=True)
+class _ApprovalResolution:
+    """What actually happened when govern_tool() tried to resolve a require-approval decision
+    through the synchronous in-process path. ``answered=True`` means ``handler`` itself genuinely
+    produced a result before the timeout -- a real decision, whether allow or deny. ``answered=
+    False`` covers every case where nothing genuine came back: no handler was provided, the
+    handler raised, or it simply didn't return before ``timeout_ms``. This distinction is what
+    lets ``execute()`` decide whether a ``pending_approvals`` registry entry should be closed out
+    as terminally resolved (a real decision was made) or left 'pending' for a later out-of-band
+    resolve_pending()/resume_pending_approval() call to actually resolve. Either way, THIS
+    execute() invocation still fails closed (denies) when answered is False, exactly as before
+    this distinction existed -- only the registry's own bookkeeping changes."""
+
+    outcome: ApprovalOutcome
+    answered: bool
+
+
 def _resolve_approval(
     handler: Optional[ApprovalHandler], info: GateDecisionInfo, timeout_ms: int
-) -> ApprovalOutcome:
+) -> _ApprovalResolution:
     if not handler:
-        return ApprovalOutcome(approved=False)
+        return _ApprovalResolution(outcome=ApprovalOutcome(approved=False), answered=False)
 
     # A handler that raises must fail closed exactly like "no handler" or "timed out" -- it
     # must NOT propagate out of govern_tool(), because that would skip the trace-append call
     # below and surface a raw, unrelated error instead of ToolGovernDenialError. An
     # unanswerable approval request is a denial, not an application crash.
-    outcome_box: Dict[str, ApprovalOutcome] = {}
+    result_box: Dict[str, _ApprovalResolution] = {}
 
     def _run() -> None:
         try:
             result = handler(info)
-            outcome_box["outcome"] = _normalize_approval_result(result)
+            result_box["resolution"] = _ApprovalResolution(
+                outcome=_normalize_approval_result(result), answered=True
+            )
         except Exception:
-            outcome_box["outcome"] = ApprovalOutcome(approved=False)
+            result_box["resolution"] = _ApprovalResolution(
+                outcome=ApprovalOutcome(approved=False), answered=False
+            )
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -213,8 +254,10 @@ def _resolve_approval(
     if thread.is_alive():
         # Timed out -- fail closed. The handler thread is left to finish in the background
         # (daemon=True), but its eventual result is discarded.
-        return ApprovalOutcome(approved=False)
-    return outcome_box.get("outcome", ApprovalOutcome(approved=False))
+        return _ApprovalResolution(outcome=ApprovalOutcome(approved=False), answered=False)
+    return result_box.get(
+        "resolution", _ApprovalResolution(outcome=ApprovalOutcome(approved=False), answered=False)
+    )
 
 
 def govern_tool(tool: ToolDefinition, options: GovernToolOptions) -> ToolDefinition:
@@ -263,6 +306,24 @@ def govern_tool(tool: ToolDefinition, options: GovernToolOptions) -> ToolDefinit
         if len(fired_rules) == 0 and default_decision != "allow":
             decision = default_decision
 
+        # Registered BEFORE on_approval_required is invoked (or even looked at), so a durable
+        # record of this decision exists regardless of whether the synchronous handler answers,
+        # times out, raises, or was never provided at all -- see pending_approvals above.
+        pending_id: Optional[str] = None
+        if decision == "require-approval" and options.pending_approvals:
+            pending_id = options.pending_approvals.register_pending(
+                agent_id=agent_id,
+                session_id=session_id,
+                coordinator_id=coordinator_id,
+                tool=tool.name,
+                args=args,
+                scope=effective_scope,
+                fired_rules=fired_rules,
+                agent_id_source=agent_id_source,
+                disabled_rules=disabled_rules,
+                downgrade_to_approval=downgrade_to_approval,
+            )
+
         info = GateDecisionInfo(
             agent_id=agent_id,
             session_id=session_id,
@@ -272,14 +333,33 @@ def govern_tool(tool: ToolDefinition, options: GovernToolOptions) -> ToolDefinit
             decision=decision,
             fired_rules=fired_rules,
             scope=effective_scope,
+            pending_id=pending_id,
         )
 
         final_decision: Decision = decision
         approved_by: Optional[str] = None
         if decision == "require-approval":
-            outcome = _resolve_approval(options.on_approval_required, info, approval_timeout_ms)
-            final_decision = "allow" if outcome.approved else "deny"
-            approved_by = outcome.approved_by
+            resolution = _resolve_approval(options.on_approval_required, info, approval_timeout_ms)
+            final_decision = "allow" if resolution.outcome.approved else "deny"
+            approved_by = resolution.outcome.approved_by
+
+            # Only reflect this outcome back into the durable registry when the synchronous
+            # handler actually, genuinely answered -- a real decision, allow or deny, is terminal:
+            # a later resolve_pending()/resume_pending_approval() call must get
+            # 'already-resolved', never a chance to re-decide or (for a side-effecting tool)
+            # re-execute a call this process already finished with.
+            #
+            # When NOTHING genuinely answered (no handler, a raising handler, or a timeout), THIS
+            # execute() call still fails closed exactly as before -- but the registry entry is
+            # deliberately left 'pending', so the real approval can still arrive later, out of
+            # band, via resolve_pending()/resume_pending_approval(). Reflecting a fail-closed
+            # default back as if it were a real decision would make that async path permanently
+            # unreachable.
+            if pending_id and options.pending_approvals and resolution.answered:
+                options.pending_approvals.resolve_pending(
+                    pending_id,
+                    ResolvePendingInput(decision=final_decision, approved_by=approved_by),
+                )
 
         if options.trace:
             if fired_rules:
@@ -327,3 +407,132 @@ def govern_tool(tool: ToolDefinition, options: GovernToolOptions) -> ToolDefinit
             raise
 
     return ToolDefinition(name=tool.name, execute=execute)
+
+
+class PendingApprovalNotResolvableError(Exception):
+    """Raised by ``resume_pending_approval()`` when the ``pending_id`` it was given cannot be
+    resolved to a fresh, actionable decision -- either because it (or its alias) is unrecognized,
+    because it was already resolved by an earlier call (the synchronous path answering, or a
+    previous resume), or because it expired. This is deliberately a different error from
+    ``ToolGovernDenialError``: a denial is a real classifier/human verdict on the call; this is
+    "there was nothing here left to resolve," which callers (a webhook handler, say) generally
+    need to handle differently (e.g. respond 409/404 rather than "your request was denied")."""
+
+    def __init__(self, pending_id: str, status: str) -> None:
+        self.pending_id = pending_id
+        self.status = status
+        super().__init__(
+            f"toolgovern: pending approval {pending_id!r} could not be resolved ({status})."
+        )
+
+
+@dataclass
+class ResumePendingApprovalOptions:
+    """Optional wiring resume_pending_approval() accepts -- deliberately the same shape of
+    trace/on_decision/on_tool_result options govern_tool() itself accepts, so a caller resuming a
+    pending approval gets the same trace/observability behavior as the original synchronous call
+    would have."""
+
+    trace: Optional[TraceWriter] = None
+    on_decision: Optional[Callable[[GateDecisionInfo], None]] = None
+    on_tool_result: Optional[Callable[[Any, RuleContext], Any]] = None
+
+
+def resume_pending_approval(
+    tool: ToolDefinition,
+    registry: PendingApprovalRegistry,
+    pending_id: str,
+    resolution: ResolvePendingInput,
+    options: Optional[ResumePendingApprovalOptions] = None,
+) -> Any:
+    """Closes the loop ``pending_approvals`` opens: given the SAME ``tool`` definition
+    ``govern_tool()`` was originally wrapping, a ``PendingApprovalRegistry`` that call registered
+    its require-approval decision in, the ``pending_id`` it was given back, and a resolution
+    (allow/deny, optionally with ``edited_args``), this resolves the pending approval and -- if
+    and only if the resolution (after any edited-args re-classification) comes back allow --
+    actually invokes ``tool.execute()`` with the effective arguments, appends one trace entry with
+    ``approved_by`` populated exactly as the synchronous path does, and returns the tool's result.
+
+    This is the piece of the "durable, resumable approval" story that runs OUTSIDE the original
+    ``govern_tool(...).execute()`` call -- from a webhook handler, a CLI command, or a long-running
+    human review queue's worker loop, any time after that original call already returned (denied,
+    most likely, if nothing answered its synchronous window). It does not, and cannot, resume that
+    ORIGINAL execute() call itself -- that call already returned. What it does is perform the
+    actual, real, gated execution the human's later decision authorizes, through the identical
+    classify -> gate -> execute -> trace pipeline, so an edited/approved call still cannot skip
+    re-classification and still produces a real audit trail.
+
+    Raises ``PendingApprovalNotResolvableError`` if the pending approval is unrecognized, already
+    resolved, or expired -- never silently does nothing. Raises ``ToolGovernDenialError`` if the
+    resolution (or its edited-args re-classification) is a deny -- ``tool.execute()`` is never
+    called in that case, exactly like a live ``govern_tool()`` denial.
+    """
+    options = options or ResumePendingApprovalOptions()
+    pending = registry.get(pending_id)
+    outcome = registry.resolve_pending(pending_id, resolution)
+
+    if outcome.status != "resolved":
+        raise PendingApprovalNotResolvableError(pending_id, outcome.status)
+
+    effective_args = outcome.args if outcome.args is not None else (pending.args if pending else {})
+    fired_rules = outcome.fired_rules if outcome.fired_rules is not None else (
+        pending.fired_rules if pending else []
+    )
+    scope = pending.scope if pending else ScopeDeclaration()
+    final_decision: Decision = "allow" if outcome.final_decision == "allow" else "deny"
+
+    info = GateDecisionInfo(
+        agent_id=pending.agent_id if pending else "default-agent",
+        session_id=pending.session_id if pending else "default-session",
+        coordinator_id=pending.coordinator_id if pending else None,
+        tool=pending.tool if pending else tool.name,
+        args=effective_args,
+        decision=final_decision,
+        fired_rules=fired_rules,
+        scope=scope,
+        pending_id=pending_id,
+    )
+
+    if options.trace:
+        if fired_rules:
+            rule_fired_ids = [r.rule_id for r in fired_rules]
+        elif final_decision != "allow":
+            rule_fired_ids = ["policy-default-decision"]
+        else:
+            rule_fired_ids = []
+        options.trace.append(
+            TraceEntryInput(
+                session_id=info.session_id,
+                agent_id=info.agent_id,
+                tool=info.tool,
+                args=effective_args,
+                decision=final_decision,
+                rule_fired=rule_fired_ids,
+                declared_scope=scope,
+                approved_by=outcome.approved_by,
+                agent_id_source=pending.agent_id_source if pending else None,
+            )
+        )
+
+    if options.on_decision:
+        options.on_decision(info)
+
+    if final_decision == "deny":
+        raise ToolGovernDenialError(info)
+
+    rule_context = RuleContext(
+        agent_id=info.agent_id,
+        session_id=info.session_id,
+        coordinator_id=info.coordinator_id,
+        tool=info.tool,
+        args=effective_args,
+        scope=scope,
+    )
+
+    try:
+        result = tool.execute(effective_args)
+        return options.on_tool_result(result, rule_context) if options.on_tool_result else result
+    except Exception as error:
+        if options.on_tool_result:
+            return options.on_tool_result(error, rule_context)
+        raise

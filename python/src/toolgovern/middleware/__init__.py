@@ -5,9 +5,12 @@ from .on_tool_call import (
     GateDecisionInfo,
     GovernToolOptions,
     InvalidAgentIdError,
+    PendingApprovalNotResolvableError,
+    ResumePendingApprovalOptions,
     ToolDefinition,
     ToolGovernDenialError,
     govern_tool,
+    resume_pending_approval,
 )
 
 __all__ = [
@@ -18,7 +21,10 @@ __all__ = [
     "GateDecisionInfo",
     "GovernToolOptions",
     "InvalidAgentIdError",
+    "PendingApprovalNotResolvableError",
+    "ResumePendingApprovalOptions",
     "ToolDefinition",
     "ToolGovernDenialError",
     "govern_tool",
+    "resume_pending_approval",
 ]

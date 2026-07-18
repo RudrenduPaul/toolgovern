@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   governTool,
+  resumePendingApproval,
   InvalidAgentIdError,
+  PendingApprovalNotResolvableError,
   ToolGovernDenialError,
 } from '../../src/middleware/onToolCall.js';
 import type { ToolDefinition } from '../../src/middleware/onToolCall.js';
+import { PendingApprovalRegistry } from '../../src/approval/pending-registry.js';
 import { ScopeRegistry } from '../../src/scoping/inheritance-enforcer.js';
 import { TraceWriter } from '../../src/trace/trace-writer.js';
 
@@ -810,5 +813,330 @@ describe('governTool', () => {
         expect(result).toEqual({ ran: 'ls ./workspace' });
       },
     );
+  });
+
+  describe('pendingApprovals (durable, resumable approval registry)', () => {
+    it('registers a durable pending approval BEFORE the synchronous onApprovalRequired callback runs', async () => {
+      const registry = new PendingApprovalRegistry();
+      let pendingIdWhenHandlerRan: string | undefined;
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onApprovalRequired: (info) => {
+          // The registry entry must already exist by the time the handler is invoked -- this is
+          // the "persist BEFORE invoking the callback" ordering the async-resume path depends on.
+          pendingIdWhenHandlerRan = info.pendingId;
+          expect(info.pendingId).toBeDefined();
+          expect(registry.get(info.pendingId!)?.status).toBe('pending');
+          return true;
+        },
+      });
+
+      await gated.execute({ command: 'sudo apt-get update' });
+      expect(pendingIdWhenHandlerRan).toBeDefined();
+    });
+
+    it("reflects the synchronous path's outcome back into the registry so it reads 'resolved'", async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+        onApprovalRequired: () => ({ approved: true, approvedBy: 'alice@example.com' }),
+      });
+
+      await gated.execute({ command: 'sudo apt-get update' });
+
+      expect(seenPendingId).toBeDefined();
+      const entry = registry.get(seenPendingId!);
+      expect(entry?.status).toBe('resolved');
+      expect(entry?.resolution).toMatchObject({
+        decision: 'allow',
+        approvedBy: 'alice@example.com',
+      });
+    });
+
+    it('a genuine sync-handler decision is terminal: a later out-of-band resolvePending() gets already-resolved', async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+        // A real, answering handler -- explicitly denies. This is a genuine decision, not a
+        // fail-closed default, so it must close out the registry entry.
+        onApprovalRequired: () => false,
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      const outcome = await registry.resolvePending(seenPendingId!, {
+        decision: 'allow',
+        approvedBy: 'late-approver@example.com',
+      });
+      expect(outcome.status).toBe('already-resolved');
+      // The synchronous handler's genuine deny is what actually happened -- a later resolve
+      // cannot retroactively turn that into an allow.
+      expect(outcome.finalDecision).toBe('deny');
+    });
+
+    it(
+      'a fail-closed default (no handler, a timeout, or a throwing handler) is NOT a genuine ' +
+        'decision -- the registry entry is left pending so a later async resolution remains possible',
+      async () => {
+        const registry = new PendingApprovalRegistry();
+        let seenPendingId: string | undefined;
+
+        // Case 1: no onApprovalRequired at all.
+        const gatedNoHandler = governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          pendingApprovals: registry,
+          onDecision: (info) => {
+            seenPendingId = info.pendingId;
+          },
+        });
+        await expect(gatedNoHandler.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+          ToolGovernDenialError,
+        );
+        expect(registry.get(seenPendingId!)?.status).toBe('pending');
+
+        // Case 2: a handler that times out.
+        const registry2 = new PendingApprovalRegistry();
+        let seenPendingId2: string | undefined;
+        const gatedTimeout = governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          pendingApprovals: registry2,
+          approvalTimeoutMs: 20,
+          onApprovalRequired: () => new Promise(() => {}),
+          onDecision: (info) => {
+            seenPendingId2 = info.pendingId;
+          },
+        });
+        await expect(gatedTimeout.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+          ToolGovernDenialError,
+        );
+        expect(registry2.get(seenPendingId2!)?.status).toBe('pending');
+
+        // Case 3: a handler that throws synchronously.
+        const registry3 = new PendingApprovalRegistry();
+        let seenPendingId3: string | undefined;
+        const gatedThrows = governTool(makeShellTool(), {
+          scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+          pendingApprovals: registry3,
+          onApprovalRequired: () => {
+            throw new Error('handler blew up');
+          },
+          onDecision: (info) => {
+            seenPendingId3 = info.pendingId;
+          },
+        });
+        await expect(gatedThrows.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+          ToolGovernDenialError,
+        );
+        expect(registry3.get(seenPendingId3!)?.status).toBe('pending');
+      },
+    );
+
+    it('with no pendingApprovals registry configured, behavior is unchanged (no regression)', async () => {
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        onApprovalRequired: () => true,
+      });
+      const result = await gated.execute({ command: 'sudo apt-get update' });
+      expect(result).toEqual({ ran: 'sudo apt-get update' });
+    });
+
+    it('an allow decision does not register a pending approval at all', async () => {
+      const registry = new PendingApprovalRegistry();
+      const gated = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+      });
+      await gated.execute({ command: 'ls ./workspace' });
+      // No way to directly enumerate the registry, but a clean call producing no GateDecisionInfo
+      // with a pendingId is itself the proof -- covered by onDecision below.
+      let sawPendingId = false;
+      const gated2 = governTool(makeShellTool(), {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          sawPendingId = info.pendingId !== undefined;
+        },
+      });
+      await gated2.execute({ command: 'ls ./workspace' });
+      expect(sawPendingId).toBe(false);
+    });
+  });
+
+  describe('resumePendingApproval() (closing the loop for the async-resume path)', () => {
+    it('executes the tool once resolved to allow, and returns its result', async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const tool = makeShellTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      const result = await resumePendingApproval(tool, registry, seenPendingId!, {
+        decision: 'allow',
+        approvedBy: 'alice@example.com',
+      });
+      expect(result).toEqual({ ran: 'sudo apt-get update' });
+    });
+
+    it('populates approvedBy end-to-end on the async-resume trace entry, not only on the sync path', async () => {
+      const filePath = await makeTempTraceFile();
+      const trace = new TraceWriter(filePath);
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const tool = makeShellTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        trace,
+        agentId: 'coordinator',
+        sessionId: 's1',
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      await resumePendingApproval(
+        tool,
+        registry,
+        seenPendingId!,
+        { decision: 'allow', approvedBy: 'alice@example.com' },
+        { trace },
+      );
+
+      const raw = await readFile(filePath, 'utf8');
+      const lines = raw
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      // Two real trace entries: the synchronous path's fail-closed deny (at the original call),
+      // and the async-resume path's allow (once a human actually approved it later) -- each an
+      // honest record of what happened at that point in time, chained via prior_trace_id.
+      expect(lines).toHaveLength(2);
+      expect(lines[0].decision).toBe('deny');
+      expect(lines[1].decision).toBe('allow');
+      expect(lines[1].approved_by).toBe('alice@example.com');
+      expect(lines[1].prior_trace_id).toBe(lines[0].trace_id);
+    });
+
+    it('denies (never executes the tool) when the resolution re-classifies edited args to a still-risky call', async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      let executed = false;
+      const tool: ToolDefinition<{ command: string }, unknown> = {
+        name: 'bash',
+        execute: (args) => {
+          executed = true;
+          return { ran: args.command };
+        },
+      };
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      await expect(
+        resumePendingApproval(tool, registry, seenPendingId!, {
+          decision: 'allow',
+          approvedBy: 'alice@example.com',
+          editedArgs: { command: 'rm -rf /' },
+        }),
+      ).rejects.toThrow(ToolGovernDenialError);
+      expect(executed).toBe(false);
+    });
+
+    it('actually executes the tool with the edited arguments when the edit remains clean', async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const tool = makeShellTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      const result = await resumePendingApproval(tool, registry, seenPendingId!, {
+        decision: 'allow',
+        editedArgs: { command: 'ls ./workspace' },
+      });
+      expect(result).toEqual({ ran: 'ls ./workspace' });
+    });
+
+    it('throws PendingApprovalNotResolvableError for an unrecognized pendingId, never executing the tool', async () => {
+      const registry = new PendingApprovalRegistry();
+      let executed = false;
+      const tool: ToolDefinition<{ command: string }, unknown> = {
+        name: 'bash',
+        execute: (args) => {
+          executed = true;
+          return { ran: args.command };
+        },
+      };
+
+      await expect(
+        resumePendingApproval(tool, registry, 'never-registered', { decision: 'allow' }),
+      ).rejects.toThrow(PendingApprovalNotResolvableError);
+      expect(executed).toBe(false);
+    });
+
+    it('resolving by an alias registered after the original call still resumes correctly', async () => {
+      const registry = new PendingApprovalRegistry();
+      let seenPendingId: string | undefined;
+      const tool = makeShellTool();
+      const gated = governTool(tool, {
+        scope: { network: false, filesystem: ['./workspace'], credentials: [] },
+        pendingApprovals: registry,
+        onDecision: (info) => {
+          seenPendingId = info.pendingId;
+        },
+      });
+
+      await expect(gated.execute({ command: 'sudo apt-get update' })).rejects.toThrow(
+        ToolGovernDenialError,
+      );
+
+      registry.registerAlias(seenPendingId!, 'webhook-thread-id-v2');
+      const result = await resumePendingApproval(tool, registry, 'webhook-thread-id-v2', {
+        decision: 'allow',
+      });
+      expect(result).toEqual({ ran: 'sudo apt-get update' });
+    });
   });
 });
