@@ -8,9 +8,18 @@ execute, and surface a `require-approval` verdict through Agent Framework's own
 `function_approval_request` / `function_approval_response` flow instead of a separate side
 channel.
 
+This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
+(also source-only right now):
+
 ```bash
-pip install toolgovern-integration-agent-framework
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/agent-framework
 ```
+
+See [the root toolgovern README](https://github.com/RudrenduPaul/toolgovern) for why runtime
+tool-call governance matters right now.
 
 ## Scope and limitations (read this first)
 
@@ -130,8 +139,7 @@ pip install -e .[dev]
 pytest
 ```
 
-(The `toolgovern` core package is not yet published to PyPI as of this writing -- publishing is a
-separate, later step outside the scope of the run that produced this package. The `dependencies =
+(The `toolgovern` core package is not yet published to PyPI as of this writing. The `dependencies =
 ["toolgovern>=0.1.0,<0.2", ...]` pin in `pyproject.toml` is what a real install from PyPI will
 resolve once it is published; for now, install the core package from this monorepo's `python/`
 directory in editable mode, as above.)
@@ -150,7 +158,7 @@ time of writing) and the real GitHub issue/PR text, not assumed from the issue t
 | [#6860](https://github.com/microsoft/agent-framework/pull/6860) | shrutitople | **PASS (N/A -- already resolved upstream via a parallel mechanism)** | Same relationship as #6171: a sample/doc PR for Agent Framework's own FIDES gateway-delegated IFC policy evaluation. Independent of toolgovern's TG08; no fix needed from this adapter. |
 | [#5864](https://github.com/microsoft/agent-framework/issues/5864) | lirik173 | **PASS** | OPEN, labeled both `python` and `.NET` (genuinely cross-cutting, not purely one or the other). Confirmed: Agent Framework has no built-in MCP-server allowlist/signature-verification primitive at any `MCPClient`-family construction boundary. toolgovern's `mcp_trust` module (Foundation step 3) already implements exactly this primitive. `assert_trusted_mcp_streamable_http_source()` wires it to `MCPStreamableHTTPTool`'s connection URL, tested against both an allowed and a denied case. This does not fix the upstream framework gap (the issue stays open; Agent Framework itself still has no native equivalent) -- it lets a toolgovern user get the primitive today without waiting for it. |
 
-### Backlog items confirmed out of scope (do not attempt -- future .NET-port run)
+### Additional issues confirmed out of scope (future .NET-port candidates)
 
 | # | Reporter | Labels (actual, verified via `gh issue view`) | Confirmation |
 |---|----------|-----------------------------------------------|--------------|
@@ -159,8 +167,8 @@ time of writing) and the real GitHub issue/PR text, not assumed from the issue t
 | [#4753](https://github.com/microsoft/agent-framework/issues/4753) | sheng-jie | `bug`, `.NET`, `reproduced` | Genuinely .NET-only. |
 | [#2254](https://github.com/microsoft/agent-framework/issues/2254) | mokarchi | `.NET` | Genuinely .NET-only. Notable: this is the .NET-side feature request for approximately what this package builds for Python (`FunctionMiddleware`-based security/validation gating) -- a real candidate starting point for a future .NET port. |
 | [#6825](https://github.com/microsoft/agent-framework/issues/6825) | Cobra86 | `.NET` | Genuinely .NET-only, closed. |
-| [#6939](https://github.com/microsoft/agent-framework/pull/6939) | aleks-stefanovic | `python`, `documentation` (**not** `.NET`) | Correction to this package's own task brief: this PR is actually labeled `python`, not `.NET`. It is out of scope for a different reason -- it adds an unrelated Kubernetes sandbox code-execution connector (`agent-framework-agentsandbox`), not a tool-governance/approval concern this adapter addresses. Flagged here rather than silently reclassified. |
-| [#6693](https://github.com/microsoft/agent-framework/pull/6693) | taisirhassan | `.NET`, `python`, `documentation` (**dual-tagged, not purely `.NET`**) | Correction to this package's own task brief: labeled both `.NET` and `python`, MERGED. About Microsoft Purview identity-principal resolution, unrelated to toolgovern's own caller-asserted `agent_id` model or tool-call gating -- out of scope for this adapter regardless of language tagging. |
+| [#6939](https://github.com/microsoft/agent-framework/pull/6939) | aleks-stefanovic | `python`, `documentation` (**not** `.NET`) | Labeled `python`, not `.NET`, despite initially looking like a .NET-only item. It is out of scope for a different reason -- it adds an unrelated Kubernetes sandbox code-execution connector (`agent-framework-agentsandbox`), not a tool-governance/approval concern this adapter addresses. Flagged here rather than silently reclassified. |
+| [#6693](https://github.com/microsoft/agent-framework/pull/6693) | taisirhassan | `.NET`, `python`, `documentation` (**dual-tagged, not purely `.NET`**) | Labeled both `.NET` and `python`, MERGED. About Microsoft Purview identity-principal resolution, unrelated to toolgovern's own caller-asserted `agent_id` model or tool-call gating -- out of scope for this adapter regardless of language tagging. |
 
 ## What this package does not do
 

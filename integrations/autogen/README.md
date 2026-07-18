@@ -18,14 +18,23 @@ this package addresses.
 
 ## Install
 
+This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
+(also source-only right now):
+
 ```bash
-pip install toolgovern-integration-autogen
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/autogen
 ```
 
 This pulls in `toolgovern` (the core governance library) and `autogen-core`/`autogen-agentchat`
 as real dependencies. Install whichever `autogen-ext` executor extra you actually use
 (`autogen-ext[docker]`, etc.) separately -- it is not a hard dependency of this package, since
 which concrete `CodeExecutor` you wrap is your choice.
+
+See [the root toolgovern README](https://github.com/RudrenduPaul/toolgovern) for why runtime
+tool-call governance matters right now.
 
 ## `GovernedCodeExecutor` -- gate code execution
 

@@ -1,16 +1,25 @@
 # toolgovern-integration-claude-agent-sdk
 
-[![PyPI version](https://img.shields.io/pypi/v/toolgovern-integration-claude-agent-sdk.svg)](https://pypi.org/project/toolgovern-integration-claude-agent-sdk/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/RudrenduPaul/toolgovern/blob/main/LICENSE)
 
 Route [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python) tool calls through
-[toolgovern](https://pypi.org/project/toolgovern/)'s `classify()` gate via a real `PreToolUse`
+[toolgovern](https://github.com/RudrenduPaul/toolgovern)'s `classify()` gate via a real `PreToolUse`
 hook -- shell, filesystem, network, and credential access evaluated (allow, deny, or
 require-approval) before the SDK lets a tool run, with no per-tool wrapping required.
 
+This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
+(also source-only right now):
+
 ```bash
-pip install toolgovern-integration-claude-agent-sdk claude-agent-sdk toolgovern
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/claude-agent-sdk
+pip install claude-agent-sdk
 ```
+
+See [the root toolgovern README](https://github.com/RudrenduPaul/toolgovern) for why runtime
+tool-call governance matters right now.
 
 ## Why this package exists
 
@@ -141,6 +150,15 @@ does not rewrite tool arguments, so there is nothing genuine to put there in thi
 
 See the [full toolgovern documentation](https://github.com/RudrenduPaul/toolgovern) on GitHub for
 the classifier, the rule pack, and the trace format spec.
+
+## Development
+
+```bash
+cd integrations/claude-agent-sdk
+pip install -e "../../python[dev]"   # the toolgovern core, editable
+pip install -e ".[dev]"
+pytest
+```
 
 ## License
 

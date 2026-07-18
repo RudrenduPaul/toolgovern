@@ -1,13 +1,22 @@
 # toolgovern-integration-langgraph (Python)
 
 Route real [`langchain-ai/langgraph`](https://github.com/langchain-ai/langgraph) (Python) tool
-calls through [toolgovern](https://pypi.org/project/toolgovern/)'s `govern_tool()` gate --
+calls through [toolgovern](https://github.com/RudrenduPaul/toolgovern)'s `govern_tool()` gate --
 shell, filesystem, network, and credential access evaluated (allow, deny, or require-approval)
 before your real tool runs.
 
+This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
+(also source-only right now):
+
 ```bash
-pip install toolgovern-integration-langgraph
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/langgraph-python
 ```
+
+See [the root toolgovern README](https://github.com/RudrenduPaul/toolgovern) for why runtime
+tool-call governance matters right now.
 
 ## Why this package exists (and why it isn't the JS adapter with the file extension changed)
 
@@ -122,6 +131,15 @@ if you want denials to show up as an in-conversation error message rather than a
 See [`docs/root-cause.md`](./docs/root-cause.md) for the full per-issue PASS/PARTIAL/FAIL
 analysis, and the [main toolgovern documentation](https://github.com/RudrenduPaul/toolgovern) for
 the middleware itself, the rule pack, and the trace format spec.
+
+## Development
+
+```bash
+cd integrations/langgraph-python
+pip install -e "../../python[dev]"   # the toolgovern core, editable
+pip install -e ".[dev]"
+pytest
+```
 
 ## License
 

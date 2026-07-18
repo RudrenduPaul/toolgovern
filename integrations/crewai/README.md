@@ -1,16 +1,27 @@
 # toolgovern-integration-crewai
 
-[![PyPI version](https://img.shields.io/pypi/v/toolgovern-integration-crewai.svg)](https://pypi.org/project/toolgovern-integration-crewai/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/RudrenduPaul/toolgovern/blob/main/LICENSE)
 
 Route [CrewAI](https://github.com/crewAIInc/crewAI) tool calls through
-[toolgovern](https://pypi.org/project/toolgovern/)'s `govern_tool()` gate before a tool's real
+[toolgovern](https://github.com/RudrenduPaul/toolgovern)'s `govern_tool()` gate before a tool's real
 `_run()` ever executes -- shell, filesystem, network, and credential access evaluated (allow,
 deny, or require-approval) before your real tool runs.
 
+This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
+(also source-only right now):
+
 ```bash
-pip install toolgovern-integration-crewai
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/crewai
 ```
+
+Requires Python >=3.10 and <3.14 (CrewAI's own current constraint at the version this adapter
+targets).
+
+See [the root toolgovern README](https://github.com/RudrenduPaul/toolgovern) for why runtime
+tool-call governance matters right now.
 
 ## Why this package exists
 
