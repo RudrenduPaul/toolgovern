@@ -6,9 +6,8 @@ allowlist & signature-verification primitive"), open at the time of writing and 
 manifest-signature-verification primitive at the ``MCPStreamableHTTPTool`` construction boundary;
 any URL is connected to, and its declared tools trusted, with no framework-level check.
 
-toolgovern's ``mcp_trust`` module (this repo's Foundation step 3) already implements exactly the
-primitive #5864 requests: an explicit origin allowlist plus pinned-public-key manifest-signature
-verification, both fail-closed. This module is a thin, real wiring point demonstrating that a
+toolgovern's ``mcp_trust`` module already implements exactly the primitive #5864 requests: an
+explicit origin allowlist plus pinned-public-key manifest-signature verification, both fail-closed. This module is a thin, real wiring point demonstrating that a
 toolgovern user does not need to wait for that framework feature to land upstream -- call
 ``assert_trusted_mcp_streamable_http_source()`` with the URL you are about to hand to
 ``agent_framework.MCPStreamableHTTPTool(...)``, before constructing it.
