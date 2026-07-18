@@ -1,3 +1,17 @@
+# toolgovern (Python) -- renamed to toolgovern-cli
+
+**This PyPI package has been renamed.** Install [`toolgovern-cli`](https://pypi.org/project/toolgovern-cli/)
+instead:
+
+```bash
+pip install toolgovern-cli
+```
+
+This `toolgovern` package will not receive further updates. The code below is preserved as-is for
+anyone who already has it installed, but all future releases ship under the new name.
+
+---
+
 # toolgovern (Python)
 
 Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
