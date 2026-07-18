@@ -3,9 +3,9 @@
 ``DockerCommandLineCodeExecutor``, ``JupyterCodeExecutor``, ...) ever executes it.
 
 Why this exists: ``LocalCommandLineCodeExecutor.execute_code_blocks()`` (confirmed by reading
-``autogen_ext/code_executors/local/__init__.py`` in the real installed package -- see this
-repo's PR description / session notes for the exact version) writes an LLM-generated ``code``
-string straight to a file in ``work_dir`` and runs it as a local subprocess. The only existing
+``autogen_ext/code_executors/local/__init__.py`` in the real installed package) writes an
+LLM-generated ``code`` string straight to a file in ``work_dir`` and runs it as a local
+subprocess. The only existing
 safeguard is a ``UserWarning`` raised once, at construction time -- not a runtime control, and
 silently dropped by any code that filters Python warnings. That is
 `microsoft/autogen#7462 <https://github.com/microsoft/autogen/issues/7462>`_, the flagship issue
@@ -25,9 +25,9 @@ Concretely:
   containing ``os.system("rm -rf /")`` is caught by the exact same ``TG01-rm-rf`` rule a raw
   shell tool call would be.
 - TG02 (filesystem scope) scans the code string for path-like literals via
-  ``extract_path_from_code()`` (the "extractPathFromCode-equivalent logic" named in this
-  adapter's build task -- already shipped in the Foundation core, not new work here) and denies
-  a ``"../"``-traversal write such as ``open('../../pwned.txt', 'w')`` -- the exact pattern
+  ``extract_path_from_code()`` (the same path-extraction logic used by every other toolgovern
+  language integration, reused here rather than reimplemented) and denies a ``"../"``-traversal
+  write such as ``open('../../pwned.txt', 'w')`` -- the exact pattern
   `microsoft/autogen#7181 <https://github.com/microsoft/autogen/pull/7181>`_ patches natively
   inside ``LocalCommandLineCodeExecutor`` itself, via ``TG02-path-traversal``.
 
