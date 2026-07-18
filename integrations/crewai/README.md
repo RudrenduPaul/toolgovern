@@ -7,13 +7,13 @@ Route [CrewAI](https://github.com/crewAIInc/crewAI) tool calls through
 `_run()` ever executes -- shell, filesystem, network, and credential access evaluated (allow,
 deny, or require-approval) before your real tool runs.
 
-This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
-(also source-only right now):
+This package is not yet published to PyPI. Install it from source, alongside a real PyPI install
+of the toolgovern core it depends on:
 
 ```bash
+pip install toolgovern
 git clone https://github.com/RudrenduPaul/toolgovern.git
 cd toolgovern
-pip install -e python
 pip install -e integrations/crewai
 ```
 
