@@ -18,8 +18,8 @@ BEFORE ``call_next()`` (i.e. before the real tool body executes), classifies the
 - ``deny`` -> sets ``context.result`` to an error payload and raises ``MiddlewareTermination``;
   the tool body never runs.
 - ``require-approval`` -> registers the decision in a toolgovern ``PendingApprovalRegistry``
-  (the same durable registry Foundation step 2 built for exactly this "a decision needs to
-  outlive one in-process callback" case), sets ``context.result`` to a real
+  (a durable registry built for exactly this "a decision needs to outlive one in-process
+  callback" case), sets ``context.result`` to a real
   ``Content.from_function_approval_request(...)`` -- the identical content type Agent Framework's
   own approval flow produces -- and raises ``MiddlewareTermination``. The framework's own
   function-calling loop then does whatever it already does with a ``function_approval_request``:
