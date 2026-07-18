@@ -5,13 +5,12 @@ calls through [toolgovern](https://github.com/RudrenduPaul/toolgovern)'s `govern
 shell, filesystem, network, and credential access evaluated (allow, deny, or require-approval)
 before your real tool runs.
 
-This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
-(also source-only right now):
+The toolgovern core is live on PyPI (`pip install toolgovern`). This adapter package is not yet
+published there; install it from source, which pulls the PyPI core in as a normal dependency:
 
 ```bash
 git clone https://github.com/RudrenduPaul/toolgovern.git
 cd toolgovern
-pip install -e python
 pip install -e integrations/langgraph-python
 ```
 

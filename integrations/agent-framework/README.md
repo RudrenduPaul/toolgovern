@@ -8,13 +8,12 @@ execute, and surface a `require-approval` verdict through Agent Framework's own
 `function_approval_request` / `function_approval_response` flow instead of a separate side
 channel.
 
-This package is not yet published to PyPI. Install it from source, alongside the toolgovern core
-(also source-only right now):
+The toolgovern core is live on PyPI (`pip install toolgovern`). This adapter package is not yet
+published there; install it from source, which pulls the PyPI core in as a normal dependency:
 
 ```bash
 git clone https://github.com/RudrenduPaul/toolgovern.git
 cd toolgovern
-pip install -e python
 pip install -e integrations/agent-framework
 ```
 
@@ -139,10 +138,10 @@ pip install -e .[dev]
 pytest
 ```
 
-(The `toolgovern` core package is not yet published to PyPI as of this writing. The `dependencies =
-["toolgovern>=0.1.0,<0.2", ...]` pin in `pyproject.toml` is what a real install from PyPI will
-resolve once it is published; for now, install the core package from this monorepo's `python/`
-directory in editable mode, as above.)
+(This installs the toolgovern core in editable mode from the monorepo's `python/` directory so
+local core changes are picked up immediately. For a normal, non-editable install, `pip install
+toolgovern` from PyPI satisfies the same `dependencies = ["toolgovern>=0.1.0,<0.2", ...]` pin in
+`pyproject.toml`.)
 
 ## Upstream issues investigated
 
