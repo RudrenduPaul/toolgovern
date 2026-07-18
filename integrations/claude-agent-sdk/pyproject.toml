@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "toolgovern-integration-claude-agent-sdk"
+version = "0.1.0"
+description = "Govern Claude Agent SDK tool calls with toolgovern's PreToolUse-hook classifier -- gate shell, filesystem, network, and credential access before a tool executes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+  { name = "Rudrendu Paul" },
+  { name = "Sourav Nandy" },
+]
+keywords = ["security", "ai-agents", "agent-governance", "claude-agent-sdk", "tool-calling", "runtime-security", "hooks", "pretooluse"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "toolgovern>=0.1.0,<0.2",
+  "claude-agent-sdk>=0.2.0,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0,<9",
+  "pytest-asyncio>=0.23,<1",
+  "build>=1.0,<2",
+  "twine>=5.0,<7",
+]
+
+[project.urls]
+Homepage = "https://github.com/RudrenduPaul/toolgovern"
+Repository = "https://github.com/RudrenduPaul/toolgovern"
+"Bug Tracker" = "https://github.com/RudrenduPaul/toolgovern/issues"
+Changelog = "https://github.com/RudrenduPaul/toolgovern/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/RudrenduPaul/toolgovern/blob/main/integrations/claude-agent-sdk/README.md"
+"Author - Rudrendu Paul" = "https://github.com/RudrenduPaul"
+"Author - Sourav Nandy" = "https://github.com/Sourav-nandy-ai"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/toolgovern_integration_claude_agent_sdk"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "src/toolgovern_integration_claude_agent_sdk",
+  "tests",
+  "README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
