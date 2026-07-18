@@ -12,6 +12,17 @@ require-approval) before your real tool runs.
 npm install toolgovern-integration-langgraph @langchain/core @langchain/langgraph toolgovern
 ```
 
+## JS or Python? Check which LangGraph you're actually running
+
+This package is for **LangGraph.js** (`@langchain/langgraph` on npm, the `langchain-ai/langgraphjs`
+project). If your agent is built on the separately maintained **Python** `langgraph` package
+(`langchain-ai/langgraph`, installed with `pip install langgraph`), you want
+[`integrations/langgraph-python`](../langgraph-python/) in this repo instead -- it wraps tool calls
+through `ToolNode`'s real `wrap_tool_call` hook rather than at tool-definition time, because that
+hook exists in the Python package and not here. Same governance behavior, different integration
+point, because the two `ToolNode` implementations expose different constructors. The Python adapter
+is not yet published as a package; it is available from source in this repository.
+
 ## Why this package exists
 
 LangGraph.js's `ToolNode` constructor only accepts `{name, tags, handleToolErrors}` -- there is no
