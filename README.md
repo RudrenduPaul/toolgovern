@@ -12,9 +12,8 @@ toolgovern ships two independent, equally first-class packages -- pick whichever
 toolchain, or install both. Neither is deprecated in favor of the other; they run the same 35-rule
 synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
 -- see below), apply the same default-deny scope-inheritance model, and write the same signed
-trace format. The npm package is live today; the Python port is code-complete and fully tested but
-not yet published to PyPI (see [`python/README.md`](./python/README.md) for why and for the
-install-from-source path in the meantime).
+trace format. Both packages are live: the npm package, and the Python port, published to PyPI as
+of 0.1.0 (see [`python/README.md`](./python/README.md) for the Python-specific walkthrough).
 
 ```bash
 # npm -- JavaScript/TypeScript core library + CLI
@@ -22,7 +21,7 @@ npm install toolgovern
 npm install --save-dev toolgovern-cli
 
 # PyPI -- Python core library + CLI (genuine port, not a wrapper around the Node binary)
-# not live yet -- see python/README.md for the current install-from-source path
+pip install toolgovern
 ```
 
 The Python package's console script is `toolgovern-cli`, matching the npm CLI's command name --
@@ -878,9 +877,9 @@ server dependency and nothing to sign up for.
 
 **Does it work with Python or .NET agent frameworks?**
 Yes, both have a genuine core port, not a bridge that shells out to the Node binary. The Python
-port (code-complete, tested, not yet on PyPI -- install from source, see
-[`python/README.md`](./python/README.md)) ships five framework integrations (LangGraph, CrewAI,
-AutoGen, Microsoft Agent Framework, Claude Agent SDK); the .NET port (`dotnet/ToolGovern`,
+port is published to PyPI (`pip install toolgovern`, see [`python/README.md`](./python/README.md))
+and its five framework integrations (LangGraph, CrewAI, AutoGen, Microsoft Agent Framework, Claude
+Agent SDK) are source-only for now, install from source; the .NET port (`dotnet/ToolGovern`,
 source-available, not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
 [Framework integration](#framework-integration) above for the full list and what's actually
 published versus source-only today.

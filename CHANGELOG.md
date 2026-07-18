@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Python 0.1.0] - 2026-07-18 - published to PyPI
+
+The account-wide PyPI new-project throttle noted below has cleared. `toolgovern` 0.1.0 is now live
+at [pypi.org/project/toolgovern](https://pypi.org/project/toolgovern/) -- `pip install toolgovern`
+installs the library and the `toolgovern-cli` console script, both verified working end to end in
+a clean virtual environment. No code changes accompany this entry; it records the publish itself.
+
 ## [Python 0.1.0] - 2026-07-16
 
 A genuine Python port of `packages/toolgovern` and `packages/toolgovern-cli` -- not a wrapper
