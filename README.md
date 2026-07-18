@@ -37,6 +37,7 @@ see [`python/README.md`](./python/README.md) and
 ### Contents
 
 - [The gap this closes](#the-gap-this-closes)
+- [Why this matters now](#why-this-matters-now)
 - [What it does](#what-it-does)
 - [API reference](#api-reference)
 - [How it compares to other agent governance projects](#how-it-compares-to-other-agent-governance-projects)
@@ -72,6 +73,45 @@ that stays open too. toolgovern closes that specific gap in a way any framework 
 without waiting on a maintainer roadmap: wrap your existing tool definitions in one function call,
 and every invocation gets evaluated -- allow, deny, or require-approval -- before it reaches your
 real tool executor.
+
+## Why this matters now
+
+None of what follows is a claim about toolgovern's own adoption. It's why gating a tool call
+before it executes is worth doing at all right now, not later.
+
+MCP tool poisoning and supply-chain risk are validated, incident-backed problems, not a
+hypothetical. Invariant Labs formally named MCP tool poisoning in April 2025, the Postmark MCP npm
+package suffered an insider-attack BCC backdoor in September 2025, roughly a third of scanned MCP
+servers were found carrying a critical vulnerability, and Microsoft disclosed a
+poisoned-MCP-tool-description attack technique in July 2026
+([The Hacker News](https://thehackernews.com/2026/06/microsoft-warns-poisoned-mcp-tool.html),
+[Cloud Security Alliance](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-security-crisis-20260504-csa-styled/),
+[Practical DevSecOps](https://www.practical-devsecops.com/mcp-security-statistics-2026-report/)).
+
+Microsoft shipped its own open-source Agent Governance Toolkit in April 2026, a runtime policy
+engine that intercepts agent actions before execution
+([opensource.microsoft.com](https://opensource.microsoft.com/blog/2026/04/02/introducing-the-agent-governance-toolkit-open-source-runtime-security-for-ai-agents/)).
+It's an unrelated project -- toolgovern isn't affiliated with it and doesn't claim to be -- cited
+here only because it confirms that gating a tool call before it runs is now a concern the largest
+framework vendors are building for too, not something only a small OSS project cares about.
+
+The frameworks this project ships real integrations for are themselves consolidating and growing
+fast, which is part of why the gap matters at each of them specifically. Microsoft merged AutoGen
+and Semantic Kernel into Microsoft Agent Framework 1.0 (GA'd 2026-04-03), with first-class Python
+and .NET support under `Microsoft.Agents.AI`
+([devblogs.microsoft.com](https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/),
+[github.com/microsoft/agent-framework](https://github.com/microsoft/agent-framework)). LangGraph
+passed CrewAI in GitHub stars in early 2026, driven by enterprise adoption of its graph-based
+architecture ([langchain.com](https://www.langchain.com/resources/ai-agent-frameworks)). The
+Claude Agent SDK reportedly passed AutoGen in enterprise production-deployment count in
+early-to-mid 2026 per LangChain's own State of AI 2025 report, and ships a purpose-built
+`PreToolUse` hook this project wires into directly (see the Claude Agent SDK integration below).
+
+Regulatory pressure adds a harder deadline on top of the technical case: the EU AI Act's
+high-risk-AI obligations take effect in August 2026, the Colorado AI Act becomes enforceable in
+June 2026, and OWASP published a dedicated Top 10 for Agentic Applications for 2026. That's the
+backdrop that makes "can you show what an agent actually tried to do, and prove a call was blocked
+before it ran" a question more teams get asked, not fewer.
 
 ## What it does
 
@@ -228,6 +268,40 @@ you actually import from.
 | `validatePolicy` | `(raw: unknown) => PolicyValidationResult` | Validates a policy object without loading from disk.                                    |
 | `asPolicy`       | `(raw: unknown) => Policy`                 | Type-narrows a validated raw object to `Policy`.                                        |
 
+**Approval**
+
+| Export                             | Signature                                                                         | What it does                                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `PendingApprovalRegistry`          | `new PendingApprovalRegistry(options?: PendingApprovalRegistryOptions)`           | A durable, alias-tolerant registry for `require-approval` verdicts that get resolved out-of-band (a Slack button, a review queue) instead of answered synchronously in-process. |
+| `UnknownPendingApprovalError`      | `class extends Error`                                                             | Thrown when resolving an approval ID the registry has no record of.                                                      |
+| `PendingApprovalAliasConflictError` | `class extends Error`                                                             | Thrown when a caller-supplied alias collides with an existing pending approval.                                          |
+
+In-memory by default; back it with real durable storage yourself for a deployment that spans
+processes. See the Claude Agent SDK integration below for a worked example wiring this into a real
+`PreToolUse` hook's require-approval path.
+
+**MCP-server trust**
+
+| Export                    | Signature                                                                                       | What it does                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `isOriginAllowed`         | `(origin: string, allowlist: readonly string[]) => boolean`                                     | Connection-time origin allowlist check, exact-match by default (opt into subdomain matching with a leading `*.` entry). |
+| `verifyMcpServerManifest` | `(manifestUrlOrEnvelope: string \| McpManifestEnvelope, opts: VerifyManifestOptions) => Promise<McpTrustVerdict>` | Verifies an MCP server manifest's detached Ed25519/RSA-SHA256 signature against a pinned public-key list. Fails closed on every path: no pinned keys, unreachable manifest, unknown key ID, or a signature that doesn't verify all deny. |
+| `assertMcpServerTrusted` | `(request: McpServerConnectionRequest, policy: McpTrustPolicy) => Promise<McpTrustVerdict>`      | The combined connection-time gate: origin allowlist first, then manifest signature verification, before any tool the server declares is trusted. |
+
+This is a categorically different governance moment from TG01-TG05/TG08: those classify what a
+tool call *does* once an MCP server is already connected and its tools are already being invoked.
+`mcp-trust` answers a question the per-call classifier never asks -- should this agent have
+connected to this MCP server, and trusted the tool definitions it declared, in the first place --
+checked once at connection time, before any tool call from that server is ever classified. It's
+motivated directly by two real 2026 MCP supply-chain incidents: the CrewAI CVE-2026-2275/2287
+chain (an untrusted MCP-sourced tool as the enabling condition for a prompt-injection-to-RCE
+chain) and the Postmark MCP package rug-pull (a previously-trusted server pushing a malicious
+update that every downstream deployment silently inherited). See
+[`docs/security-model.md`](./docs/security-model.md) ("MCP-server trust boundary") for the full
+writeup, including what this module deliberately doesn't attempt: no sigstore/keyless
+verification, no revocation checking for a compromised pinned key, and no re-verification of a
+live connection after the manifest check passes once.
+
 **Classifier**
 
 | Export              | Signature                                                                    | What it does                                                                                                                   |
@@ -260,12 +334,12 @@ This isn't an empty field. Read the table honestly before deciding what you need
 |                            | **toolgovern**                                                      | [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit)      | [NVIDIA NeMo Relay](https://github.com/NVIDIA/NeMo-Relay)                                                                        | [LangGraph human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) |
 | -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | What it actually gates     | Tool calls, pre-execution, against a built-in rule set              | Tool calls, messages, and delegation, pre-execution, against policy you author (YAML/OPA/Cedar)  | Tool and LLM calls via pre-tool hooks -- coverage depends on the host agent, documented for Claude Code/Codex, partial elsewhere | A single tool call, paused for a human decision -- no automated risk classification              |
-| Rules out of the box       | 34, across 5 categories, zero config                                | None shipped -- you write the policy                                                             | None shipped -- pre-tool hooks call your own logic, not a built-in classifier                                                    | None -- you decide per call                                                                      |
+| Rules out of the box       | 35, across 6 categories, zero config                                | None shipped -- you write the policy                                                             | None shipped -- pre-tool hooks call your own logic, not a built-in classifier                                                    | None -- you decide per call                                                                      |
 | Language / footprint       | TypeScript, one library, wraps a function                           | Python-first, 5 language SDKs, policy engine + identity system + execution sandbox + audit stack | Rust core, with Python/Node.js/Rust bindings (experimental Go)                                                                   | Python (a separate `langgraphjs` exists but tracks independently)                                |
 | Per-agent scope narrowing  | Yes -- a sub-agent can never exceed its coordinator's granted scope | Yes -- documented delegation-chain narrowing and a 4-ring privilege model                        | Not publicly documented                                                                                                          | No                                                                                               |
 | Tamper-evident audit trail | Yes -- signed, hash-chained local JSONL                             | Yes -- Merkle-audit-backed, part of a formal spec with 157 conformance tests                     | No -- raw JSONL trajectory export (ATOF/ATIF format), not signed                                                                 | No                                                                                               |
 | Hosted component required  | No, never                                                           | No -- self-hosted by design, Azure integration is optional                                       | No -- local CLI gateway                                                                                                          | No for the OSS library; LangGraph's own hosted server runtime is separately licensed             |
-| Stars (checked 2026-07-14) | 0, pre-launch                                                       | 4.9k                                                                                             | 76 (new, created 2026-03-31)                                                                                                     | 37.3k (core `langgraph` repo)                                                                    |
+| Stars (checked 2026-07-18) | 0, pre-launch                                                       | 4.9k                                                                                             | 77 (new, created 2026-03-31)                                                                                                     | 37.5k (core `langgraph` repo)                                                                    |
 | License                    | Apache 2.0                                                          | MIT                                                                                              | Apache 2.0                                                                                                                       | MIT                                                                                              |
 
 Two things worth being direct about, because they'd get caught fast otherwise:
@@ -321,14 +395,12 @@ through, and if you find one, extend the corpus yourself.
 ## Framework integration
 
 Two published TypeScript integration packages (thin wrappers around `governTool()`, no
-independent governance logic), plus a growing set of Python-only integration packages targeting
-specific agent frameworks' own Python SDKs directly, and a CLI command (`toolgovern-cli init`,
-see below) that scaffolds a TypeScript integration directly into your project. Each Python
-integration package's own README documents real, verified PASS/PARTIAL/FAIL findings against
-that framework's actual upstream issue tracker, not assumed from issue titles. Where a framework
-also ships a .NET/other-language implementation, porting that specific integration is tracked as
-a separate follow-up and called out explicitly in that package's own README -- never silently
-claimed as covered.
+independent governance logic), five more Python-only integration packages targeting specific
+agent frameworks' own Python SDKs directly, a source-available .NET port of the core plus a real
+Microsoft Agent Framework (.NET) adapter, and a CLI command (`toolgovern-cli init`, see below)
+that scaffolds a TypeScript integration directly into your project. Each integration package's own
+README documents real, verified PASS/PARTIAL/FAIL findings against that framework's actual
+upstream issue tracker, not assumed from issue titles.
 
 ### `toolgovern-integration-oma` -- open-multi-agent-style frameworks
 
@@ -431,10 +503,10 @@ version-specific `handle_tool_errors` behavior a denial surfaces through.
 
 ### `toolgovern-integration-agent-framework` -- Microsoft Agent Framework (Python)
 
-Python only -- see [`integrations/agent-framework/README.md`](integrations/agent-framework/README.md)
+See [`integrations/agent-framework/README.md`](integrations/agent-framework/README.md)
 for the full writeup, including honest PASS/PARTIAL/FAIL verdicts against real upstream
-`microsoft/agent-framework` issues. A .NET port is a real, separate piece of work and is
-explicitly out of scope for this package.
+`microsoft/agent-framework` issues. This one is Python-only; the .NET side of Agent Framework has
+its own separate adapter -- see the ".NET" section below.
 
 ```bash
 pip install toolgovern-integration-agent-framework
@@ -462,6 +534,186 @@ A `ToolGovernFunctionMiddleware` is also included for surfacing a per-call requi
 verdict through Agent Framework's own `function_approval_request`/`function_approval_response`
 flow (rather than a separate side channel), plus a connection-time MCP-server trust gate wiring
 toolgovern's `mcp_trust` module to `MCPStreamableHTTPTool`. See that package's README for both.
+
+### `toolgovern-integration-crewai` -- CrewAI (Python)
+
+CrewAI's tool-execution surface is `crewai.tools.BaseTool` -- a concrete `run()` that validates
+arguments and claims a usage-count slot, then calls an abstract `_run()` a subclass implements
+(confirmed against the real, installed `crewai` 1.15.4 wheel, not assumed from an older release).
+CrewAI does ship a global, process-wide `before_tool_call` hook registry, but that's a different
+shape from `govern_tool()`'s per-tool-instance, per-agent-identity, per-scope gate -- so this
+package wraps at the `BaseTool` boundary itself instead, the same approach the LangGraph.js
+adapter above uses. No monkey-patching: it returns a new `BaseTool` with the same `name`,
+`description`, and `args_schema`, calling the real tool's own `run()` only after the classifier
+allows the call. This isn't published to PyPI yet -- install it from source:
+
+```bash
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/crewai
+```
+
+```python
+from crewai import Agent
+from crewai.tools import BaseTool
+from toolgovern import GovernToolOptions, ScopeDeclaration
+from toolgovern_integration_crewai import governed_crewai_tool
+
+
+class ShellTool(BaseTool):
+    name: str = "shell"
+    description: str = "Runs a shell command."
+
+    def _run(self, command: str) -> str:
+        import subprocess
+        return subprocess.run(command, shell=True, capture_output=True, text=True).stdout
+
+
+governed_shell = governed_crewai_tool(
+    ShellTool(),
+    GovernToolOptions(
+        scope=ScopeDeclaration(network=False, filesystem=["./workspace"]),
+        agent_id="research-sub",
+        session_id="demo-session",
+    ),
+)
+
+agent = Agent(role="Researcher", goal="...", backstory="...", tools=[governed_shell])
+```
+
+See [`integrations/crewai/README.md`](integrations/crewai/README.md) for the full writeup,
+including why there's no plural `governed_crewai_tools()` helper (CrewAI tools are commonly
+assigned per-agent with different scopes, so wrapping a whole list with one shared options object
+is the wrong default here).
+
+### `toolgovern-integration-autogen` -- Microsoft AutoGen (Python)
+
+Targets AutoGen's two real dispatch call sites directly:
+`GovernedCodeExecutor` wraps any `CodeExecutor` (`LocalCommandLineCodeExecutor`,
+`DockerCommandLineCodeExecutor`, ...) so every `CodeBlock` is classified by TG01/TG02 before the
+wrapped executor runs it -- the flagship issue this addresses,
+[microsoft/autogen#7462](https://github.com/microsoft/autogen/issues/7462), is that
+`LocalCommandLineCodeExecutor` writes LLM-generated code straight to disk with only a
+construction-time `UserWarning` as a safeguard. `governed_autogen_tool()` wraps any
+`autogen_core.tools.Tool` at its `run_json()` dispatch point instead, the same one
+`ToolAgent`/`AssistantAgent` both use. This isn't published to PyPI yet -- install it from source:
+
+```bash
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/autogen
+```
+
+```python
+from autogen_ext.code_executors.local import LocalCommandLineCodeExecutor
+from toolgovern import GovernToolOptions, ScopeDeclaration, ToolGovernDenialError
+from toolgovern_integration_autogen import GovernedCodeExecutor
+
+real_executor = LocalCommandLineCodeExecutor(work_dir="./coding")
+governed = GovernedCodeExecutor(real_executor, GovernToolOptions(scope=ScopeDeclaration()))
+
+# A dangerous block never reaches LocalCommandLineCodeExecutor.execute_code_blocks() at all.
+try:
+    await governed.execute_code_blocks(
+        [CodeBlock(code="import os; os.system('rm -rf /')", language="python")], CancellationToken()
+    )
+except ToolGovernDenialError as e:
+    print(f"denied before execution: {e}")
+```
+
+See [`integrations/autogen/README.md`](integrations/autogen/README.md) for the full writeup,
+including honest verdicts against real upstream issues this does and doesn't address -- it's a
+pre-execution classifier, not a sandbox: it doesn't enforce process isolation or resource limits,
+so pair it with `DockerCommandLineCodeExecutor` (or similar) for genuine isolation.
+
+### `toolgovern-integration-claude-agent-sdk` -- Claude Agent SDK (Python)
+
+Routes tool calls through a real `PreToolUse` hook -- verified against the installed
+`claude-agent-sdk` package (`claude_agent_sdk/types.py`) directly, not a docs summary. The hook
+fires before any tool executes, receives the tool name and input the model is about to invoke,
+and returns a structured `permissionDecision` the CLI itself enforces, so there's no per-tool
+wrapper call site to get right or accidentally miss. This isn't published to PyPI yet -- install
+it from source:
+
+```bash
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern
+pip install -e python
+pip install -e integrations/claude-agent-sdk
+pip install claude-agent-sdk
+```
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
+from toolgovern import ScopeDeclaration
+from toolgovern_integration_claude_agent_sdk import GovernedHookOptions, governed_pretooluse_hook
+
+hook = governed_pretooluse_hook(
+    GovernedHookOptions(
+        scope=ScopeDeclaration(filesystem=["/workspace"], network=["api.internal.example.com"]),
+        agent_id="research-sub",
+        session_id="demo-session",
+    )
+)
+
+options = ClaudeAgentOptions(hooks={"PreToolUse": [HookMatcher(hooks=[hook])]})
+```
+
+A `require-approval` verdict has no in-hook way to pause for asynchronous human review, so it's
+wired to the same `PendingApprovalRegistry` the core ships (see the Approval table above): the
+decision is registered durably first, an optional `on_approval_required` handler gets a bounded
+window to answer, and if there's no handler, it raises, or it times out, the hook fails closed
+(deny) with the pending-approval ID named in the reason so it can be resolved out of band. See
+[`integrations/claude-agent-sdk/README.md`](integrations/claude-agent-sdk/README.md) for the full
+writeup.
+
+### .NET -- `ToolGovern.Net` and `ToolGovern.AgentFramework`
+
+A faithful .NET port of the core (the same multi-rule classifier -- shell-risk, filesystem-scope,
+network-egress, credential-access, cross-agent-inheritance, information-flow -- the
+intersection-only scope registry, the signed hash-chained trace, and the `GovernTool()`
+pre-execution middleware gate) lives under [`dotnet/ToolGovern`](dotnet/ToolGovern), targeting
+`net10.0`. `ToolGovern.AgentFramework` builds on it to gate Microsoft Agent Framework (.NET)
+`AIFunction` tool calls, using the exact `DelegatingAIFunction` extension point the framework's own
+maintainer pointed integrators to in
+[agent-framework#2254](https://github.com/microsoft/agent-framework/issues/2254). Neither package
+is published to NuGet yet -- build from source:
+
+```bash
+git clone https://github.com/RudrenduPaul/toolgovern.git
+cd toolgovern/dotnet/ToolGovern.AgentFramework
+dotnet build
+```
+
+```csharp
+using Microsoft.Extensions.AI;
+using ToolGovern;
+using ToolGovern.AgentFramework;
+using ToolGovern.Middleware;
+
+string ReadFile(string path) => File.ReadAllText(path);
+
+AIFunction tool = AIFunctionFactory.Create(ReadFile, "read_file", "Reads a file from the workspace.");
+
+AIFunction governed = tool.WithToolGovern(new GovernToolOptions
+{
+    Scope = new ScopeDeclaration { Network = NetworkScope.False, Filesystem = ["/workspace"] },
+    AgentId = "research-agent",
+});
+
+// Outside the declared scope -- ToolGovernDenialError, ReadFile() never runs.
+await governed.InvokeAsync(new AIFunctionArguments { ["path"] = "/etc/passwd" });
+```
+
+See [`dotnet/ToolGovern.AgentFramework/src/ToolGovern.AgentFramework/README.md`](dotnet/ToolGovern.AgentFramework/src/ToolGovern.AgentFramework/README.md)
+for the full writeup, including an honest PARTIAL verdict against
+[agent-framework#2254](https://github.com/microsoft/agent-framework/issues/2254) (this package is
+a real, usable answer to the DX gap reported there, but doesn't itself land a first-class
+framework API -- the maintainer said as much in the thread) and root-caused FAIL -- N/A verdicts on
+five other .NET-tagged issues that live in layers of `Microsoft.Agents.AI` this kind of
+tool-definition-boundary wrapper has no reach into.
 
 ## CLI
 
@@ -613,9 +865,12 @@ trace content, or policy leaves the process unless code you write sends it somew
 server dependency and nothing to sign up for.
 
 **Does it work with Python or .NET agent frameworks?**
-Not directly -- toolgovern's core is Node/TypeScript-only today, with no Python or .NET runtime or
-bridge. If your framework is Python- or .NET-based, `governTool()` isn't something you can wrap
-your tools in without a bridge that doesn't exist yet.
+Yes, both have a genuine core port, not a bridge that shells out to the Node binary. The Python
+port (`pip install toolgovern`) ships five framework integrations (LangGraph, CrewAI, AutoGen,
+Microsoft Agent Framework, Claude Agent SDK); the .NET port (`dotnet/ToolGovern`, source-available,
+not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
+[Framework integration](#framework-integration) above for the full list and what's actually
+published versus source-only today.
 
 **Does it detect every risky tool call?**
 No, and the README says so on purpose. The 35 rules are checked honestly against a 116-case corpus
