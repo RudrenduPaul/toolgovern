@@ -320,12 +320,15 @@ through, and if you find one, extend the corpus yourself.
 
 ## Framework integration
 
-Two published integration packages, plus a CLI command (`toolgovern-cli init`, see below) that
-scaffolds either one directly into your project. Both are TypeScript-only in this release --
-they're thin wrappers around `governTool()` (roughly 170 combined lines, no independent
-governance logic), and porting them to Python is tracked as a follow-up rather than blocking the
-core Python package's release; the classifier, scoping, and trace engine are fully ported and
-behaviorally equivalent between distributions today.
+Two published TypeScript integration packages (thin wrappers around `governTool()`, no
+independent governance logic), plus a growing set of Python-only integration packages targeting
+specific agent frameworks' own Python SDKs directly, and a CLI command (`toolgovern-cli init`,
+see below) that scaffolds a TypeScript integration directly into your project. Each Python
+integration package's own README documents real, verified PASS/PARTIAL/FAIL findings against
+that framework's actual upstream issue tracker, not assumed from issue titles. Where a framework
+also ships a .NET/other-language implementation, porting that specific integration is tracked as
+a separate follow-up and called out explicitly in that package's own README -- never silently
+claimed as covered.
 
 ### `toolgovern-integration-oma` -- open-multi-agent-style frameworks
 
@@ -425,6 +428,40 @@ tool_node = governed_tool_node(my_tools, options)
 See [`integrations/langgraph-python/README.md`](./integrations/langgraph-python/README.md) for
 the tool-definition-boundary alternative (`governed_tool`/`governed_tools`) and the verified,
 version-specific `handle_tool_errors` behavior a denial surfaces through.
+
+### `toolgovern-integration-agent-framework` -- Microsoft Agent Framework (Python)
+
+Python only -- see [`integrations/agent-framework/README.md`](integrations/agent-framework/README.md)
+for the full writeup, including honest PASS/PARTIAL/FAIL verdicts against real upstream
+`microsoft/agent-framework` issues. A .NET port is a real, separate piece of work and is
+explicitly out of scope for this package.
+
+```bash
+pip install toolgovern-integration-agent-framework
+```
+
+```python
+from toolgovern import GovernToolOptions, ScopeDeclaration
+from toolgovern_integration_agent_framework import governed_function_tool
+
+
+def read_file(path: str) -> str:
+    with open(path) as f:
+        return f.read()
+
+
+tool = governed_function_tool(
+    read_file,
+    GovernToolOptions(scope=ScopeDeclaration(filesystem=["/workspace"]), agent_id="research-agent"),
+    description="Read a file from the workspace.",
+)
+# tool is a real agent_framework.FunctionTool -- use it exactly like any other tool.
+```
+
+A `ToolGovernFunctionMiddleware` is also included for surfacing a per-call require-approval
+verdict through Agent Framework's own `function_approval_request`/`function_approval_response`
+flow (rather than a separate side channel), plus a connection-time MCP-server trust gate wiring
+toolgovern's `mcp_trust` module to `MCPStreamableHTTPTool`. See that package's README for both.
 
 ## CLI
 
