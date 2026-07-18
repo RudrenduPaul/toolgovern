@@ -112,8 +112,8 @@ This exact bypass is already closed in `python/src/toolgovern/approval/pending_r
 - `register_pending()` always mints a server-generated `pending_id` (`uuid4`); there is no
   registration or resolution path under a caller-chosen id.
 - `resolve_pending()` NEVER creates an entry for an unrecognized id/alias -- it returns
-  `status="not-found"`, full stop. Verified directly in this session's own test run (core suite,
-  `test_pending_registry.py`, part of the 328-test pass below) and by reading the implementation.
+  `status="not-found"`, full stop. Verified directly by running the core suite
+  (`test_pending_registry.py`, part of the 328-test pass below) and by reading the implementation.
 - Already-resolved and expired entries are also terminal and cannot be re-resolved
   (`"already-resolved"` / `"expired"`), closing the adjacent replay angle the same discussion
   raised.

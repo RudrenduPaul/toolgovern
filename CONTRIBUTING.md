@@ -67,7 +67,7 @@ pytest
 ## Adding or changing a classifier rule
 
 Every rule lives in `packages/toolgovern/src/classifier/<category>.ts` and implements the `Rule`
-interface in `packages/toolgovern/src/types.ts`: a rule ID, a category (`TG01`-`TG05`), a
+interface in `packages/toolgovern/src/types.ts`: a rule ID, a category (`TG01`-`TG05` or `TG08`), a
 one-line description, and an `evaluate(ctx)` function that returns either `null` (the rule did
 not fire) or a `RuleMatch` with a `decision` (`deny` or `require-approval`) and a human-readable
 `reason`.
