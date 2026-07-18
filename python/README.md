@@ -4,7 +4,7 @@ Gate every tool call an AI agent makes -- shell, filesystem, network, credential
 it executes, not after something already went wrong.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/toolgovern.svg)](https://pypi.org/project/toolgovern/)
+[![PyPI](https://img.shields.io/pypi/v/toolgovern-cli.svg)](https://pypi.org/project/toolgovern-cli/)
 
 This is the genuine Python port of [`toolgovern`](https://www.npmjs.com/package/toolgovern) and
 [`toolgovern-cli`](https://www.npmjs.com/package/toolgovern-cli) -- not a wrapper around the Node
@@ -81,13 +81,13 @@ executes is worth doing at all right now.
 ## Install
 
 ```bash
-pip install toolgovern
+pip install toolgovern-cli
 ```
 
 or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add toolgovern
+uv add toolgovern-cli
 ```
 
 Or install straight from this repository:
@@ -298,3 +298,4 @@ Report a vulnerability per the project's [`SECURITY.md`](https://github.com/Rudr
 ## License
 
 Apache 2.0 -- see [LICENSE](../LICENSE).
+
