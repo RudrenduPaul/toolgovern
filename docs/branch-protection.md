@@ -1,10 +1,12 @@
 # Branch protection for `main`
 
 This documents the exact steps to require pull-request review before merging to `main`, require
-the CI status check to pass, and block force-pushes. **Not applied yet.** Turning this on changes
-how every future change lands (no more direct pushes to `main`, including for the maintainers), so
-it should be a deliberate decision made when the project is ready for outside contributors, not a
-default flipped silently.
+the CI status check to pass, and block force-pushes. **Applied, with `enforce_admins` off.** `main`
+currently requires 1 approving review before merging and disallows force-pushes and branch
+deletion; `enforce_admins` is `false`, so a repo admin can still push directly to `main` in an
+emergency or for solo maintenance -- the rule binds outside contributors, not the maintainer.
+A required CI status check has not been added yet -- see the "Option A"/"Option B" steps below to
+add one once a workflow's job name is confirmed.
 
 ## Prerequisites
 
@@ -75,8 +77,11 @@ Notes on the flags:
 gh api /repos/RudrenduPaul/toolgovern/branches/main/protection
 ```
 
-A `200` response with `required_pull_request_reviews` and `required_status_checks` populated
-confirms the rule is live. A `404` means no protection rule exists on `main` yet.
+A `200` response confirms a protection rule is live on `main`; check which pieces it covers from
+the fields present. Today that response includes a populated `required_pull_request_reviews` (1
+approval) and `allow_force_pushes`/`allow_deletions` both `false`, but no `required_status_checks`
+key at all -- no CI check is wired into branch protection yet, only PR review. A `404` means no
+protection rule exists on `main`.
 
 ## Removing it
 
@@ -84,8 +89,10 @@ confirms the rule is live. A `404` means no protection rule exists on `main` yet
 gh api --method DELETE /repos/RudrenduPaul/toolgovern/branches/main/protection
 ```
 
-## When to turn this on
+## Current status and what's left
 
-Once the project is accepting outside contributions and direct-push-to-main is no longer the
-maintainers' own preferred workflow for solo iteration. Until then, direct commits to `main` are
-the intended workflow for this repo and this document is reference material, not a pending task.
+PR-review protection is on now that the project accepts outside contributions. The remaining step
+in Option A/B above -- wiring a required CI status check into the rule -- is still open; add it
+once the CI workflow's job name is confirmed. `enforce_admins` stays `false` by design: the
+maintainer can still push directly to `main` for solo iteration without opening a PR, and outside
+contributors go through PR review.

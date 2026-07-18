@@ -152,8 +152,8 @@ a matching `secretKey` and:
 - keeps verifying legacy/default `sha256:` entries exactly as before, per-entry, regardless of
   whether the caller happens to also supply a `secretKey`.
 
-That last point was a real bug caught during the manual end-to-end QA pass (Section 5 of the
-build checklist), not something caught by a unit test first: `verifyChain()` initially applied
+That last point was a real bug caught during manual end-to-end QA, not something caught by a unit
+test first: `verifyChain()` initially applied
 whatever `secretKey` it was given to _every_ entry regardless of that entry's own signature
 scheme, so running `toolgovern-cli audit --verify-chain --key-file <path>` against a perfectly
 valid, untampered, unkeyed (`sha256:`) trace reported every single entry as `CHAIN INVALID` --
@@ -566,6 +566,57 @@ readers-lattice label with set intersection -- needs meaningfully more than this
 that is a genuinely bigger, architecturally different piece of work than a classifier rule can
 close, and is stated here plainly rather than papered over.
 
+### 13. Durable, out-of-band approval resolution (`PendingApprovalRegistry`) closes three real bypass shapes
+
+**The gap.** `governTool()`'s `require-approval` path only ever answered synchronously, in-process,
+via an `onApprovalRequired` callback with a bounded window. Nothing let a `require-approval`
+decision be resolved later, by something other than the original caller -- a webhook receiving a
+Slack button click, a CLI command, a long-running human review queue. Building that resumable path
+from scratch has three concrete ways to get the security wrong, each demonstrated by a real
+upstream bug rather than a hypothetical.
+
+**The fix.** `PendingApprovalRegistry` (`packages/toolgovern/src/approval/pending-registry.ts` /
+`python/src/toolgovern/approval/pending_registry.py`) persists every `require-approval` decision as
+a `PendingApproval` keyed by a server-generated `pendingId`, resolvable later via `resolvePending()`
+/ `resolve_pending()`. Three design decisions close three real bugs:
+
+- **`pendingId` is always server-generated, never caller-supplied.** Closes the bypass a security
+  bot found in [langchain-ai/langgraph#8169](https://github.com/langchain-ai/langgraph/issues/8169):
+  that `human_approval()` helper read its resume token out of an untrusted resume payload and,
+  when the ID was unrecognized, silently created a brand-new pending decision for it instead of
+  failing closed -- so a caller who could resume an interrupted graph could mint a fresh ID and
+  turn an expired/cancelled/mismatched approval into an approvable one. `resolvePending()` never
+  creates an entry for an unrecognized ID; an unknown `pendingId` is `'not-found'`, full stop.
+- **Alias tolerance for the same pending approval.** Models the fix in
+  [microsoft/agent-framework#6908](https://github.com/microsoft/agent-framework/pull/6908): a
+  stateful provider streamed back a new conversation ID mid-thread, and an approval registered only
+  under the original thread ID could never be found by a client resuming with the new one.
+  `registerAlias()` / `register_alias()` lets a caller record that another identifier now also
+  refers to an already-registered `pendingId`; a resolve by either the original ID or any alias
+  consumes the same entry, and a second resolve returns `'already-resolved'`, never a silent
+  re-grant.
+- **Edited arguments are re-classified, never smuggled through on the strength of the original
+  approval.** `resolvePending()` / `resolve_pending()` accepts `editedArgs` / `edited_args`; when
+  paired with an `'allow'` decision, the edited arguments run back through the classifier (the
+  same rule overrides active at registration time) before the resolution is accepted. A
+  re-classification that comes back non-`allow` overrides the human's `'allow'`.
+
+**Proof.** `packages/toolgovern/test/approval/pending-registry.test.ts` and
+`python/tests/test_pending_registry.py` cover, on both sides: the register-resolve happy path,
+resolve-by-alias after an alias rewrite, a second resolve of the same ID returning
+`'already-resolved'` rather than a fresh decision, a dedicated test named for the langgraph#8169
+bypass proving `resolvePending()` never creates a new pending approval for an unrecognized ID,
+edited-args re-classification denying an edit that would itself trigger a deny even after approval,
+and TTL expiry.
+
+**What this explicitly does NOT do.** The registry is in-memory, scoped to one process -- it is a
+pure state machine over pending approvals; it does not itself execute a tool or write a trace
+entry (`resumePendingApproval()` in `onToolCall.ts` does that, recording `approved_by` on the trace
+entry exactly as the synchronous path does). A deployment that needs a pending approval to survive
+a process restart, or to be resolved from a different process than the one that registered it (the
+webhook case this feature targets), must back it with real durable storage behind the same
+interface -- that persistence layer is not shipped here.
+
 ## Summary
 
 | #   | Area                                                                           | Status                                                                                                                                                                                       |
@@ -582,6 +633,7 @@ close, and is stated here plainly rather than papered over.
 | 10  | TG03 hostname arguments resolving to a private/loopback/metadata address       | Fixed + tested (both languages); DNS-rebinding TOCTOU narrowed, not eliminated; redirect-chain revalidation remains a separate, still-open gap                                               |
 | 11  | MCP-server trust boundary (origin allowlist + manifest signature verification) | Fixed + tested (both languages); sigstore/keyless verification, key revocation, and post-connection re-verification remain out of scope                                                      |
 | 12  | Information-flow control (TG08: confidential-source-to-untrusted-sink)         | Added + tested (both languages), scoped deliberately; not a FIDES-style MCP gateway IFC system -- no automatic label inference, no gateway, no cross-call taint tracking, no readers lattice |
+| 13  | Durable, out-of-band approval resolution (`PendingApprovalRegistry`)           | Added + tested (both languages); closes three real bugs (langgraph#8169 resume-token bypass, agent-framework#6908 alias loss, edited-args-bypasses-classifier); in-memory only, no durable storage backing shipped |
 
 Nothing in this document should be read as "toolgovern makes a gated agent session safe." A gated
 call means it was evaluated against the current rule set and, for the classes of bypass covered
@@ -669,3 +721,9 @@ of this document: disclosed, not silently omitted.
   lattice, MCP-transport-level label propagation) than a per-call classifier rule can close; see
   finding #12 for the full, honest comparison against the two real upstream issues this was scoped
   from.
+
+- **Durable storage for pending approvals.** Finding #13's `PendingApprovalRegistry` is a
+  process-scoped, in-memory `Map`. It does not survive a process restart, and it cannot be resolved
+  from a different process than the one that registered it without an operator wiring in real
+  durable storage (a database row, a Redis key) behind the same interface -- that backing store is
+  not shipped by toolgovern itself.

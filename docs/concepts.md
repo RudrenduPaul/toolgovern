@@ -128,6 +128,36 @@ addition to a signature mismatch. See [docs/trace-format.md](./trace-format.md) 
 field reference and [docs/security-model.md](./security-model.md) for the residual limitations
 of both signing modes.
 
+## Durable, resumable approvals
+
+The gate pipeline above answers `require-approval` synchronously, in-process, via a caller-supplied
+`onApprovalRequired` handler that gets a bounded window to respond. `PendingApprovalRegistry`
+(same class name in both `packages/toolgovern/src/approval/pending-registry.ts` and
+`python/src/toolgovern/approval/pending_registry.py`) adds a second, independent path for the same
+decision: every `require-approval` verdict is also persisted as a `PendingApproval`, keyed by a
+server-generated `pendingId`, so something that is not the original in-process handler -- a webhook
+receiving a Slack button click, a CLI command, a long-running human review queue -- can look it up
+and resolve it later via `resolvePending()` / `resolve_pending()`.
+
+Three behaviors are worth knowing:
+
+- **`pendingId` is always server-generated, never caller-supplied**, and an unrecognized ID
+  resolves to `'not-found'` rather than silently registering a new entry.
+- **Aliases share one entry.** `registerAlias()` / `register_alias()` lets a caller record that
+  another identifier (a rewritten thread ID, a provider-issued conversation ID) refers to an
+  already-registered `pendingId`; resolving by either the original ID or any alias consumes the
+  same entry, and a second resolve returns `'already-resolved'` rather than granting twice.
+- **Edited arguments are re-classified before an approval is accepted.** `resolvePending()` /
+  `resolve_pending()` accepts `editedArgs` / `edited_args`; when paired with an `'allow'` decision,
+  the edited arguments run back through the classifier before the resolution takes effect, so an
+  edit that would itself trigger a `deny` overrides the human's `'allow'`.
+
+The registry is in-memory, scoped to one process -- a deployment that needs a pending approval to
+survive a restart, or to be resolved from a different process than the one that registered it,
+needs to back it with real durable storage behind the same interface. Resolving a pending approval
+records who resolved it as `approved_by` on the eventual trace entry, exactly as the synchronous
+path does. See [docs/security-model.md](./security-model.md) for the design decisions this closes.
+
 ## MCP-server trust boundary (connection-time, not per-call)
 
 Everything above -- the classifier, scoping, the trace -- runs _after_ an MCP server's tools are

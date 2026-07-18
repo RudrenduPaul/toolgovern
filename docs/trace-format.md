@@ -20,6 +20,26 @@ JSON Lines (`.jsonl`) file by `TraceWriter`. Each line is a self-contained JSON 
 }
 ```
 
+A call that went through human approval carries one more field, `approved_by`, naming who resolved
+it:
+
+```json
+{
+  "trace_id": "tg_2026-07-11_9b3f0d",
+  "timestamp": "2026-07-11T09:15:03.000Z",
+  "session_id": "multi-agent-run-8f2c",
+  "agent_id": "research-sub",
+  "tool": "http_fetch",
+  "arguments_hash": "sha256:1e9a44...",
+  "decision": "allow",
+  "rule_fired": ["TG03-host-not-in-scope"],
+  "declared_scope": { "network": false, "filesystem": ["./workspace"], "credentials": [] },
+  "signature": "sha256:7c02f1...",
+  "prior_trace_id": "tg_2026-07-11_c4e9a1",
+  "approved_by": "jane@example.com"
+}
+```
+
 ## Fields
 
 | Field             | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -36,6 +56,7 @@ JSON Lines (`.jsonl`) file by `TraceWriter`. Each line is a self-contained JSON 
 | `agent_id_source` | `"explicit"` if the caller passed `agentId` to `governTool()`, `"fallback"` if none was supplied and toolgovern used its default (`'default-agent'`). Optional -- absent on entries written directly via `TraceWriter.append()` without a source, and on traces written before this field existed. This is provenance only, **not** proof: an `"explicit"` value just means a caller supplied _some_ string, not that the string is true. See "What `agent_id`/`agent_id_source` do and do not prove" below. |
 | `signature`       | `sha256:<hex>` by default, or `hmac-sha256:<hex>` if `TraceWriter` was given a `secretKey`. Recomputing it and comparing (`verifyChain()`) detects any change to the entry after it was written.                                                                                                                                                                                                                                                                                                             |
 | `prior_trace_id`  | The `trace_id` of the previous entry in the same session, or `null` for the first entry in a session                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `approved_by`     | Identity of the human who resolved a `require-approval` gate -- whether resolved synchronously via `onApprovalRequired` or out-of-band via `PendingApprovalRegistry.resolvePending()`. Absent for calls that never went through human approval.                                                                                                                                                                                                                                                            |
 
 ## What "signed" means here
 
