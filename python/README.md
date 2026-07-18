@@ -4,12 +4,7 @@ Gate every tool call an AI agent makes -- shell, filesystem, network, credential
 it executes, not after something already went wrong.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../LICENSE)
-
-**Not yet on PyPI.** This package is code-complete and fully tested -- the publish is blocked by a
-new-project throttle on the publishing account (`429 Too many new projects created`), not by any
-issue with the package itself. See [Install](#install) for how to use it from source until that
-clears, or use the published [npm package](https://www.npmjs.com/package/toolgovern) in the
-meantime if you're not tied to Python.
+[![PyPI](https://img.shields.io/pypi/v/toolgovern.svg)](https://pypi.org/project/toolgovern/)
 
 This is the genuine Python port of [`toolgovern`](https://www.npmjs.com/package/toolgovern) and
 [`toolgovern-cli`](https://www.npmjs.com/package/toolgovern-cli) -- not a wrapper around the Node
@@ -85,8 +80,6 @@ executes is worth doing at all right now.
 
 ## Install
 
-Not yet published to PyPI -- see the notice above. Once the publish clears:
-
 ```bash
 pip install toolgovern
 ```
@@ -97,7 +90,7 @@ or with [uv](https://docs.astral.sh/uv/):
 uv add toolgovern
 ```
 
-Until then, install straight from this repository:
+Or install straight from this repository:
 
 ```bash
 git clone https://github.com/RudrenduPaul/toolgovern.git
@@ -105,7 +98,7 @@ cd toolgovern/python
 pip install .
 ```
 
-Either way, no separate install step and no external binary to fetch: the classifier, scoping
+No separate install step and no external binary to fetch: the classifier, scoping
 registry, approval registry, MCP-trust boundary, and trace engine all ship inside the one
 package. The console script is `toolgovern-cli`, matching the npm CLI's command name.
 
