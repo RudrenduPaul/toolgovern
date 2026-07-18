@@ -419,6 +419,87 @@ view` before writing this, not assumed from their titles):
   payload -- see `extractCandidateHost()`'s "SSRF via nested MCP tool payloads" tests -- but that is
   a different, already-shipped capability, not something this fix adds or extends.
 
+### 11. MCP-server trust boundary: connection-time origin allowlisting and manifest-signature verification
+
+**The gap, as previously disclosed in this document.** Every finding above (and TG01-TG05
+generally) evaluates a tool call's _arguments_ once a server's tools are already trusted and
+being invoked. Nothing in `governTool()`/`govern_tool()` ever asked whether the agent should have
+connected to, and trusted the tool definitions declared by, a given MCP server in the first
+place -- that gap was listed plainly in "What this does not cover" below as out of scope for a
+per-call argument classifier. It no longer is: `packages/toolgovern/src/mcp-trust/index.ts` /
+`python/src/toolgovern/mcp_trust/__init__.py` are a new, standalone connection-time trust layer,
+deliberately separate from the TG01-TG05 rule registry rather than a sixth rule category, because
+this is a categorically different governance moment (once, at connection time, before any call is
+classified) from what TG01-TG05 evaluate (every call, against a scope, after connection).
+
+Motivated by two real 2026 MCP supply-chain incidents: the CrewAI CVE-2026-2275/2287 chain
+(prompt injection chained into RCE via an untrusted MCP-sourced tool trust path) and the Postmark
+MCP package rug-pull (a previously-trusted MCP server pushed a malicious update that every
+downstream deployment inherited, because nothing pinned or verified what the server was allowed
+to declare).
+
+**The fix.** Two primitives, both fail-closed:
+
+- **`isOriginAllowed()` / `is_origin_allowed()`.** An explicit origin allowlist checked once per
+  MCP-server connection, not once per call. Default posture is exact match, not subdomain
+  trust -- deliberately narrower than TG03's `hostMatchesAllowed()` (which matches subdomains
+  unconditionally): a connection-time server-trust decision is higher-stakes than a per-call
+  network-egress check, so silently trusting `evil.mcp.example.com` because `mcp.example.com` is
+  allowed would be a real regression. An operator who wants subdomain matching opts in explicitly
+  with a leading `*.` allowlist entry. An empty allowlist denies everything, never "allow
+  everything."
+- **`verifyMcpServerManifest()` / `verify_mcp_server_manifest()`.** Signature verification of a
+  fetched (or directly-supplied) MCP server manifest against a pinned public-key list, before any
+  tool the manifest declares is trusted. Supports Ed25519 (`node:crypto`'s PureEdDSA `verify()`
+  on the TS side, `cryptography`'s `Ed25519PublicKey.verify()` on the Python side) and RSA-SHA256
+  / PKCS#1 v1.5 detached signatures over the manifest's exact bytes -- never a re-serialized
+  object, since re-serialization is not guaranteed byte-stable and could make a genuinely valid
+  signature appear to fail, or worse, mask what was actually signed. An unreachable manifest URL
+  (network error, timeout, non-2xx status), an unknown key ID, a malformed signature encoding, a
+  verification call that itself throws (e.g. a pinned key mislabeled under the wrong algorithm),
+  and a signature that fails to verify all `deny` -- there is no code path that returns `allow`
+  without a signature that positively verified against a pinned key. An empty pinned-key list is
+  treated as a misconfiguration to deny loudly, not "verification is optional."
+- **`assertMcpServerTrusted()` / `assert_mcp_server_trusted()`** combines both checks into the
+  single connection-time gate: origin is checked first (so a manifest fetch, real network I/O, is
+  never attempted for an origin that was never going to be trusted anyway), and either check
+  failing alone is a hard deny with no partial-trust state.
+
+**Proof.** `packages/toolgovern/test/mcp-trust/index.test.ts` (27 tests) and
+`python/tests/test_mcp_trust.py` (26 tests) cover, on both sides: exact-match and glob-allowlist
+origin matching (including the no-implicit-subdomain-trust case), a genuine Ed25519 and a genuine
+RSA-SHA256 round-trip signature verification using real generated keypairs (not mocked crypto), an
+unknown-keyid denial, an empty-pinned-key-list denial, a malformed-signature denial, a
+wrong-algorithm-label denial, a fetched-manifest-URL success and failure path (unreachable,
+non-2xx, malformed body, timeout) via an injectable fetch implementation, and the combined
+`assertMcpServerTrusted`/`assert_mcp_server_trusted` gate (including proving the manifest fetch is
+never attempted when origin fails first). Most importantly, a **genuine tampered-manifest test**
+on both sides: sign the original manifest bytes, flip a single character in the manifest text
+afterward while leaving the original signature completely untouched, and assert verification now
+fails -- proving actual cryptographic signature verification is wired in, not a stub that always
+returns `true`.
+
+**What this explicitly does NOT do -- disclosed, not hidden:**
+
+- **No sigstore/keyless verification.** The pinned-key path is what is actually implemented and
+  tested here. A keyless flow (Rekor transparency-log verification, Fulcio certificate-chain
+  validation, OIDC identity binding, no pinned key list to manage) is a real, separate feature
+  with its own trust model, not attempted in this pass.
+- **No key-revocation checking.** Pinning a key here means the operator owns rotating that list
+  themselves; there is no CRL/OCSP-style revocation lookup for a pinned key that is later
+  compromised or retired.
+- **No re-verification after the initial connection-time check.** This is a gate run once, before
+  a server's tools are trusted -- it does not re-check the manifest on every subsequent call from
+  that server. TG01-TG05 remain solely responsible for what each individual call actually does
+  once a server has passed this gate.
+- **`isOriginAllowed()` is a string/hostname comparison, not a transport-identity check.** It
+  decides whether an asserted origin string is on the allowlist; it does not verify a TLS
+  certificate or otherwise cryptographically bind the origin string to the actual network peer.
+  Same caller-asserted-string caveat this document already applies to `agentId` (finding #9).
+- **No wiring into any specific MCP client library.** This ships as a standalone primitive an
+  integration calls at its own MCP-connection point; it is not (yet) wired into a bundled MCP
+  client wrapper of toolgovern's own.
+
 ## Summary
 
 | #   | Area                                                                           | Status                                                                                                                                         |
@@ -433,6 +514,7 @@ view` before writing this, not assumed from their titles):
 | 8   | Cross-agent scope inheritance soundness                                        | Reviewed, no issues found                                                                                                                      |
 | 9   | Agent identity is caller-asserted, not cryptographically verified              | Partial fix + tested (format validation + trace provenance); identity verification remains out of scope                                        |
 | 10  | TG03 hostname arguments resolving to a private/loopback/metadata address       | Fixed + tested (both languages); DNS-rebinding TOCTOU narrowed, not eliminated; redirect-chain revalidation remains a separate, still-open gap |
+| 11  | MCP-server trust boundary (origin allowlist + manifest signature verification) | Fixed + tested (both languages); sigstore/keyless verification, key revocation, and post-connection re-verification remain out of scope        |
 
 Nothing in this document should be read as "toolgovern makes a gated agent session safe." A gated
 call means it was evaluated against the current rule set and, for the classes of bypass covered
@@ -482,12 +564,6 @@ of this document: disclosed, not silently omitted.
   call is a fresh request or a retry of one that already ran. Retry-safe, exactly-once semantics
   are the calling framework's responsibility, not something inferable from a single call's
   arguments alone.
-
-- **MCP-server trust boundary (origin allowlisting, server signature/PKI verification).** Deciding
-  whether to trust and connect to a given MCP server at all is a connection-time, server-identity
-  concern that is resolved before toolgovern's classifier ever runs. toolgovern evaluates the
-  arguments of an individual call; it has no model of, and does not evaluate, which server issued
-  the tool definition being called.
 
 - **Real process/kernel-level resource isolation (Docker/Firecracker/WASM-style sandboxing).**
   Related to the process-isolation point above but worth stating on its own: `governTool()` is an

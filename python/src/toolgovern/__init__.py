@@ -47,6 +47,20 @@ from .classifier import (
     rule_registry,
     shell_risk_rules,
 )
+from .mcp_trust import (
+    Algorithm as McpTrustAlgorithm,
+    DEFAULT_MANIFEST_FETCH_TIMEOUT_SECONDS,
+    FetchImpl as McpManifestFetchImpl,
+    McpManifestEnvelope,
+    McpServerConnectionRequest,
+    McpTrustDecision,
+    McpTrustPolicy,
+    McpTrustVerdict,
+    PinnedPublicKey,
+    assert_mcp_server_trusted,
+    is_origin_allowed,
+    verify_mcp_server_manifest,
+)
 from .middleware import (
     ApprovalHandler,
     ApprovalOutcome,
@@ -122,6 +136,19 @@ __all__ = [
     "ScopeRegistryReader",
     "TraceEntry",
     "TraceEntryInput",
+    # mcp_trust
+    "McpTrustAlgorithm",
+    "DEFAULT_MANIFEST_FETCH_TIMEOUT_SECONDS",
+    "McpManifestFetchImpl",
+    "McpManifestEnvelope",
+    "McpServerConnectionRequest",
+    "McpTrustDecision",
+    "McpTrustPolicy",
+    "McpTrustVerdict",
+    "PinnedPublicKey",
+    "assert_mcp_server_trusted",
+    "is_origin_allowed",
+    "verify_mcp_server_manifest",
     # middleware
     "ApprovalHandler",
     "ApprovalOutcome",

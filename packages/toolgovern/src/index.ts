@@ -14,3 +14,4 @@ export * from './scoping/index.js';
 export * from './trace/index.js';
 export * from './policy/index.js';
 export * from './approval/pending-registry.js';
+export * from './mcp-trust/index.js';

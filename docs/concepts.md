@@ -77,6 +77,26 @@ addition to a signature mismatch. See [docs/trace-format.md](./trace-format.md) 
 field reference and [docs/security-model.md](./security-model.md) for the residual limitations
 of both signing modes.
 
+## MCP-server trust boundary (connection-time, not per-call)
+
+Everything above -- the classifier, scoping, the trace -- runs _after_ an MCP server's tools are
+already trusted and being called. `mcp-trust/index.ts` / `mcp_trust/__init__.py` is a separate,
+standalone module answering a categorically different question, once, before that point: should
+this agent connect to this MCP server, and trust the tool definitions it declares, at all?
+
+- `isOriginAllowed(origin, allowlist)` / `is_origin_allowed(...)` -- an explicit allowlist checked
+  once per connection. Exact match by default (not subdomain trust, unlike TG03's own host
+  matching); a leading `*.` allowlist entry opts a domain into subdomain matching explicitly.
+- `verifyMcpServerManifest(...)` / `verify_mcp_server_manifest(...)` -- verifies a fetched (or
+  directly-supplied) manifest's detached Ed25519 or RSA-SHA256 signature against a pinned
+  public-key list before any tool it declares is trusted.
+- `assertMcpServerTrusted(...)` / `assert_mcp_server_trusted(...)` -- combines both into one gate.
+
+All three fail closed: an unreachable manifest, an unverified signature, an unknown key ID, or an
+origin not on the allowlist all deny, never silently allow. See
+[docs/security-model.md](./security-model.md) (finding #11) for what this does and does not cover
+-- notably, no sigstore/keyless verification and no post-connection re-verification.
+
 ## Policy files
 
 A policy file (`toolgovern.policy.yml`) is a YAML mapping of `scope`, an optional
