@@ -15,8 +15,8 @@ the time this was written) by reading ``claude_agent_sdk/types.py`` directly rat
 docs summary:
 
 * ``HookCallback = Callable[[HookInput, str | None, HookContext], Awaitable[HookJSONOutput]]`` --
-  the callback the SDK calls is **async**, not sync. "PreToolUse is synchronous" (this package's
-  originating brief) is true from the *framework's* perspective -- the CLI blocks the tool call
+  the callback the SDK calls is **async**, not sync. The common assumption that "PreToolUse is
+  synchronous" is true from the *framework's* perspective -- the CLI blocks the tool call
   on this hook's result before letting it run -- but the Python callback itself is an
   ``async def``, which this module's own hook function is too.
 * ``PreToolUseHookInput`` carries ``tool_name: str`` and ``tool_input: dict[str, Any]`` --
