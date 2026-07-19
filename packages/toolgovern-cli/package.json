@@ -1,6 +1,6 @@
 {
   "name": "toolgovern-cli",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "CLI for toolgovern -- validate policy files, audit local gate traces, and scaffold framework integration boilerplate, with a --json output mode for programmatic/agent use.",
   "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
   "bugs": {
@@ -39,7 +39,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "toolgovern": "0.1.3",
+    "toolgovern": "^0.1.4",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
