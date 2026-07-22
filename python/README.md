@@ -222,6 +222,35 @@ from toolgovern import (
 )
 ```
 
+## How it compares to other agent governance projects
+
+Same facts as the [project README's full comparison
+table](https://github.com/RudrenduPaul/toolgovern#how-it-compares-to-other-agent-governance-projects)
+-- condensed here to the rows that matter most for picking a package, not re-derived. The "Rules
+out of the box" row below is 36, not 35, because this Python port folds the DNS-resolution check
+(`TG03-dns-resolves-private`) directly into its one synchronous `classify()` instead of needing a
+separate async entry point -- see [What it does](#what-it-does) above. Every other row applies
+equally to both the TypeScript and Python distributions.
+
+|                             | **toolgovern**                                                       | [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit) | [NVIDIA NeMo Relay](https://github.com/NVIDIA/NeMo-Relay)                            | [LangGraph human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) |
+| --------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| What it actually gates      | Tool calls, pre-execution, against a built-in rule set                | Tool calls, messages, and delegation, pre-execution, against policy you author (YAML/OPA/Cedar) | Tool and LLM calls via pre-tool hooks -- coverage depends on the host agent              | A single tool call, paused for a human decision -- no automated risk classification               |
+| Rules out of the box        | 36 (this Python port), across 6 categories, zero config               | None shipped -- you write the policy                                                          | None shipped -- pre-tool hooks call your own logic, not a built-in classifier            | None -- you decide per call                                                                       |
+| Per-agent scope narrowing   | Yes -- a sub-agent can never exceed its coordinator's granted scope   | Yes -- documented delegation-chain narrowing and a 4-ring privilege model                      | Not publicly documented                                                                  | No                                                                                                 |
+| Tamper-evident audit trail  | Yes -- signed, hash-chained local JSONL                               | Yes -- Merkle-audit-backed, 157 conformance tests just for the audit layer                     | No -- raw JSONL trajectory export (ATOF/ATIF format), not signed                         | No                                                                                                 |
+| Hosted component required   | No, never                                                              | No -- self-hosted by design, Azure integration is optional                                     | No -- local CLI gateway                                                                  | No for the OSS library; LangGraph's own hosted server runtime is separately licensed              |
+| License                     | Apache 2.0                                                             | MIT                                                                                             | Apache 2.0                                                                                | MIT                                                                                                |
+
+Two things worth repeating from the full narrative rather than leaving implicit: Microsoft's
+Agent Governance Toolkit already matches or exceeds this project on scoping and audit-trail
+maturity (a formal delegation-chain spec, 157 conformance tests just for its audit layer) -- this
+table is not a claim that toolgovern beats AGT. And NeMo Relay / LangGraph HITL are doing a
+genuinely different job, not a weaker version of the same one -- listing them here is about scope,
+not a claim of superiority at the task each of them is actually built for. Read the [full
+comparison and both honest
+caveats](https://github.com/RudrenduPaul/toolgovern#how-it-compares-to-other-agent-governance-projects)
+in the project README before deciding what you need.
+
 ## CLI
 
 ```bash
@@ -284,6 +313,56 @@ pytest
 ## Security
 
 Report a vulnerability per the project's [`SECURITY.md`](https://github.com/RudrenduPaul/toolgovern/blob/main/SECURITY.md); please don't open a public issue for one.
+
+## FAQ
+
+**What does toolgovern do?**
+It's a runtime gate that checks every tool call an AI agent makes -- shell, filesystem, network,
+credential access -- against a 36-rule classifier before the call executes, not after.
+`govern_tool()` wraps any `ToolDefinition(name, execute)` you already have and runs each call
+through the classifier, the per-agent scope registry, and (if wired in) the signed trace writer
+before your real `execute()` ever fires. See [Why this exists](#why-this-exists) and [What it
+does](#what-it-does) above for the full case.
+
+**How does this Python package differ from the npm package, if at all?**
+Functionally, barely. It ships the same 36-rule classifier (the npm/TypeScript package runs 35
+rules synchronously plus one additional async-only DNS-resolution rule, landing at 36 checks total
+through its `classifyAsync()` path; this Python port folds that same DNS check into its one
+synchronous `classify()` instead, so it's 36 either way), the same intersection-only scope
+registry, the same durable approval registry, the same MCP-server trust boundary, and the same
+signed trace format -- a genuine Python port, not a wrapper around the Node binary. Two real gaps
+today: `toolgovern-cli init [oma|langgraph]` (the npm CLI's TypeScript integration-file scaffolder)
+isn't ported, since it generates a `.ts` file importing JS/TS-only packages; and the two npm-only
+integration packages (`toolgovern-integration-oma`, `toolgovern-integration-langgraph` for
+LangGraph.js) have no Python equivalent by design -- wire `govern_tool()` directly into your
+Python framework's own call site instead. See [CLI](#cli) and [Framework
+integrations](#framework-integrations) above.
+
+**Does it need API keys or an account?**
+No. Nothing in this package calls out to a hosted service. No call payload, argument, trace
+content, or policy leaves your process unless code you write sends it somewhere -- there's no
+server dependency, no account, and nothing to sign up for.
+
+**Is it safe to run -- does an `allow` decision mean a tool call is safe?**
+Running the package itself is safe: it's a local, in-process classifier that makes no network
+calls of its own (the one exception, `TG03-dns-resolves-private`, only performs a DNS lookup of an
+argument value your own tool call passes it). But an `allow` decision is not a safety guarantee --
+it means the call was checked against the current 36-rule set and nothing fired.
+[`docs/security-model.md`](https://github.com/RudrenduPaul/toolgovern/blob/main/docs/security-model.md)
+in the main repo documents exactly what the classifier does and doesn't catch, including disclosed
+obfuscation techniques it can still miss.
+
+**How do I use it from an agent?**
+Five real Python framework integrations exist in the main repo -- LangGraph (using the real
+`wrap_tool_call` `ToolNode` parameter), CrewAI, AutoGen, Microsoft Agent Framework, and the Claude
+Agent SDK (using its real `PreToolUse` hook) -- each installable from source (none are published to
+PyPI yet). For a framework without a dedicated integration, wrap your own tool definitions with
+`govern_tool()` directly at whatever call site your framework dispatches tool calls from. See
+[Framework integrations](#framework-integrations) above for install commands and worked examples.
+
+**Is there a hosted version of toolgovern?**
+No. Everything that exists today is in the GitHub repository, Apache 2.0, self-hosted only, for
+both the Python and TypeScript distributions.
 
 ## Links
 
