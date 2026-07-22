@@ -7,6 +7,10 @@
     "url": "https://github.com/RudrenduPaul/toolgovern/issues"
   },
   "license": "Apache-2.0",
+  "author": "Rudrendu Paul",
+  "contributors": [
+    "Sourav Nandy"
+  ],
   "type": "module",
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",
