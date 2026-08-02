@@ -268,11 +268,11 @@ you actually import from.
 
 **Approval**
 
-| Export                             | Signature                                                                         | What it does                                                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `PendingApprovalRegistry`          | `new PendingApprovalRegistry(options?: PendingApprovalRegistryOptions)`           | A durable, alias-tolerant registry for `require-approval` verdicts that get resolved out-of-band (a Slack button, a review queue) instead of answered synchronously in-process. |
-| `UnknownPendingApprovalError`      | `class extends Error`                                                             | Thrown when resolving an approval ID the registry has no record of.                                                      |
-| `PendingApprovalAliasConflictError` | `class extends Error`                                                             | Thrown when a caller-supplied alias collides with an existing pending approval.                                          |
+| Export                              | Signature                                                               | What it does                                                                                                                                                                    |
+| ----------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PendingApprovalRegistry`           | `new PendingApprovalRegistry(options?: PendingApprovalRegistryOptions)` | A durable, alias-tolerant registry for `require-approval` verdicts that get resolved out-of-band (a Slack button, a review queue) instead of answered synchronously in-process. |
+| `UnknownPendingApprovalError`       | `class extends Error`                                                   | Thrown when resolving an approval ID the registry has no record of.                                                                                                             |
+| `PendingApprovalAliasConflictError` | `class extends Error`                                                   | Thrown when a caller-supplied alias collides with an existing pending approval.                                                                                                 |
 
 In-memory by default; back it with real durable storage yourself for a deployment that spans
 processes. See the Claude Agent SDK integration below for a worked example wiring this into a real
@@ -280,14 +280,14 @@ processes. See the Claude Agent SDK integration below for a worked example wirin
 
 **MCP-server trust**
 
-| Export                    | Signature                                                                                       | What it does                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `isOriginAllowed`         | `(origin: string, allowlist: readonly string[]) => boolean`                                     | Connection-time origin allowlist check, exact-match by default (opt into subdomain matching with a leading `*.` entry). |
+| Export                    | Signature                                                                                                         | What it does                                                                                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isOriginAllowed`         | `(origin: string, allowlist: readonly string[]) => boolean`                                                       | Connection-time origin allowlist check, exact-match by default (opt into subdomain matching with a leading `*.` entry).                                                                                                                  |
 | `verifyMcpServerManifest` | `(manifestUrlOrEnvelope: string \| McpManifestEnvelope, opts: VerifyManifestOptions) => Promise<McpTrustVerdict>` | Verifies an MCP server manifest's detached Ed25519/RSA-SHA256 signature against a pinned public-key list. Fails closed on every path: no pinned keys, unreachable manifest, unknown key ID, or a signature that doesn't verify all deny. |
-| `assertMcpServerTrusted` | `(request: McpServerConnectionRequest, policy: McpTrustPolicy) => Promise<McpTrustVerdict>`      | The combined connection-time gate: origin allowlist first, then manifest signature verification, before any tool the server declares is trusted. |
+| `assertMcpServerTrusted`  | `(request: McpServerConnectionRequest, policy: McpTrustPolicy) => Promise<McpTrustVerdict>`                       | The combined connection-time gate: origin allowlist first, then manifest signature verification, before any tool the server declares is trusted.                                                                                         |
 
 This is a categorically different governance moment from TG01-TG05/TG08: those classify what a
-tool call *does* once an MCP server is already connected and its tools are already being invoked.
+tool call _does_ once an MCP server is already connected and its tools are already being invoked.
 `mcp-trust` answers a question the per-call classifier never asks -- should this agent have
 connected to this MCP server, and trusted the tool definitions it declared, in the first place --
 checked once at connection time, before any tool call from that server is ever classified. It's

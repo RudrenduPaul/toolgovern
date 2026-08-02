@@ -35,14 +35,14 @@ older release or from memory.
 CrewAI 1.15.4 does ship a `before_tool_call` hook system
 (`crewai.hooks.register_before_tool_call_hook`), and an open PR
 ([#6432](https://github.com/crewAIInc/crewAI/pull/6432)) proposes a `GuardrailProvider` adapter
-on top of it. That system is a *global*, process-wide hook registry matched by tool/agent name
+on top of it. That system is a _global_, process-wide hook registry matched by tool/agent name
 patterns -- a fundamentally different shape from `govern_tool()`'s per-tool-instance,
 per-agent-identity, per-scope gate. This package instead wraps at the `BaseTool` boundary
 itself, the same "public tool-definition boundary, not a framework's internal hook plumbing"
 approach the already-shipped
 [`toolgovern-integration-langgraph`](https://github.com/RudrenduPaul/toolgovern/tree/main/integrations/langgraph)
 adapter uses for LangGraph.js. No monkey-patching of `BaseTool` or any CrewAI internals: this
-returns a *new* `BaseTool` instance with the same `name`, `description`, and `args_schema` as
+returns a _new_ `BaseTool` instance with the same `name`, `description`, and `args_schema` as
 the tool it wraps, calling through to the real tool's own `run()` only after toolgovern's
 classifier allows the call.
 
@@ -131,7 +131,7 @@ This package adds tool-call governance to CrewAI's `BaseTool` execution boundary
 retroactively fix bugs that live entirely inside CrewAI's own orchestration internals (e.g. task/
 agent tool-list assignment, prompt-construction/memory-sanitization paths, or CrewAI-specific
 crash-on-malformed-input bugs in a specific bundled tool) -- toolgovern gates a call's
-*arguments* before a tool executes; it does not rewrite a vulnerable tool's own implementation,
+_arguments_ before a tool executes; it does not rewrite a vulnerable tool's own implementation,
 and it has no visibility into what gets wired into an agent's `tools` list before a call is ever
 made. It also inherits toolgovern's own disclosed limitations verbatim -- most notably,
 `TG03-dns-resolves-private`'s DNS-rebinding TOCTOU gap (a resolve-then-check pattern narrows but

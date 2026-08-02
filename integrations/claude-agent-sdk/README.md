@@ -26,7 +26,7 @@ tool-call governance matters right now.
 Real market signal (2025-07 onward) shows `claude-agent-sdk` passing AutoGen in enterprise
 production-deployment count in early-to-mid 2026 -- and until this package, it had zero toolgovern
 coverage. Its `PreToolUse` hook is also, mechanically, the cleanest governance seam toolgovern has
-adapted to yet: it fires before *any* tool executes, receives the exact tool name and input the
+adapted to yet: it fires before _any_ tool executes, receives the exact tool name and input the
 model is about to invoke, and returns a structured permission decision (`allow` / `deny` / `ask` /
 `defer`) that the CLI itself enforces -- no framework fork, no per-tool wrapper call site to get
 right or accidentally miss.
@@ -84,7 +84,7 @@ So a `require-approval` classifier verdict is wired to the same durable, resumab
 registry the rest of toolgovern ships (`toolgovern.PendingApprovalRegistry`,
 `toolgovern.resume_pending_approval()`):
 
-1. The decision is registered in a `PendingApprovalRegistry` *before* anything else happens, so a
+1. The decision is registered in a `PendingApprovalRegistry` _before_ anything else happens, so a
    durable record exists regardless of what happens next.
 2. If you supply `on_approval_required` (an `async` callable, bounded by `approval_timeout_s`) and
    it genuinely answers in time, that answer is the final decision and the registry entry is
