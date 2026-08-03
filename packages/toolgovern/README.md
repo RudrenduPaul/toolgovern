@@ -93,19 +93,19 @@ trace line, that's a bug, not an acceptable design choice.
 
 ## Rule pack
 
-| Category                                | What it catches                                                                                                                                                        | Rules |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
-| TG01 Shell/Process Execution Risk       | `rm -rf`, pipe-to-shell, `sudo`, `chmod 777`, fork bombs, reverse shells, raw disk writes, decode-then-execute obfuscation, context-flooding reads                     | 9     |
-| TG02 Filesystem Scope Escalation        | Write/delete/chmod/read outside the declared filesystem scope, path traversal, symlink escape, sensitive system paths                                                 | 7     |
-| TG03 Undeclared Network Egress          | Hosts outside the allowlist, raw IP literals (including IPv6), non-standard ports, DNS-exfil-shaped subdomains, known paste/tunnel relays                              | 6     |
-| TG04 Credential/Secret Access           | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope                                                    | 6     |
-| TG05 Cross-Agent Privilege Inheritance  | A sub-agent call outside what its coordinator actually granted, a zero-capability sub-agent attempting any call, a coordinator's own scope shrinking mid-session       | 6     |
-| TG08 Information-Flow Control           | A call reading a caller-declared confidential-or-higher source and writing to a lower-trust (or undeclared) destination; opt-in, fails closed to `require-approval`   | 1     |
+| Category                               | What it catches                                                                                                                                                     | Rules |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| TG01 Shell/Process Execution Risk      | `rm -rf`, pipe-to-shell, `sudo`, `chmod 777`, fork bombs, reverse shells, raw disk writes, decode-then-execute obfuscation, context-flooding reads                  | 9     |
+| TG02 Filesystem Scope Escalation       | Write/delete/chmod/read outside the declared filesystem scope, path traversal, symlink escape, sensitive system paths                                               | 7     |
+| TG03 Undeclared Network Egress         | Hosts outside the allowlist, raw IP literals (including IPv6), non-standard ports, DNS-exfil-shaped subdomains, known paste/tunnel relays                           | 6     |
+| TG04 Credential/Secret Access          | `.env`, `.ssh`, cloud credential files, OS keychain access, bulk environment dumps, named credentials outside scope                                                 | 6     |
+| TG05 Cross-Agent Privilege Inheritance | A sub-agent call outside what its coordinator actually granted, a zero-capability sub-agent attempting any call, a coordinator's own scope shrinking mid-session    | 6     |
+| TG08 Information-Flow Control          | A call reading a caller-declared confidential-or-higher source and writing to a lower-trust (or undeclared) destination; opt-in, fails closed to `require-approval` | 1     |
 
 That's 35 synchronous rules, all reachable through `classify()`. `governTool()`'s `execute()` also
 always runs one more, async-only check -- `TG03-dns-resolves-private` -- which resolves a hostname
 argument and applies the same private/metadata-range check to the resolved address, catching a
-hostname that merely *resolves* to loopback/RFC1918/link-local/cloud-metadata space even when the
+hostname that merely _resolves_ to loopback/RFC1918/link-local/cloud-metadata space even when the
 argument itself isn't a raw IP literal. TG06 (risky tool-call combinations across a session) and
 TG07 (retrying a denied call with modified arguments) aren't in this rule pack yet -- both need
 cross-call session state this classifier doesn't keep, since it evaluates one call at a time. See

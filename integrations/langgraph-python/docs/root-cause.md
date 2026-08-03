@@ -126,7 +126,7 @@ bypass -- not a re-implementation, the same shared core.
 **Caveat (do not overstate this PASS):** the registry closes the specific bypass #8169's design
 had (untrusted-id-creates-a-fresh-grant). It does not yet implement the fuller "supersession"
 transition contract (`modify` -> original marked distinctly `superseded`, successor call tracked)
-that the surrounding #8026 discussion converged on as a *stronger* invariant after #8169 was
+that the surrounding #8026 discussion converged on as a _stronger_ invariant after #8169 was
 written -- see #8026's verdict above. That is a real, separate, remaining gap, not part of what
 #8169 itself was reporting.
 

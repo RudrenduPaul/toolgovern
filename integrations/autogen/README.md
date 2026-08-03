@@ -127,7 +127,7 @@ policy-authoring system:
   [microsoft/autogen#7611](https://github.com/microsoft/autogen/pull/7611) proposed (and which was
   ultimately closed/superseded upstream) -- credential env-var scrubbing, `RLIMIT_CPU`/
   `RLIMIT_AS` on the subprocess -- is out of scope for this adapter; it operates on the code
-  *string* before execution, not on the subprocess environment/resource limits during execution.
+  _string_ before execution, not on the subprocess environment/resource limits during execution.
 - **Cross-thread cancellation is best-effort.** See `_sync_bridge.py`'s docstring: the real
   AutoGen call this bridges into runs on a separate worker thread with its own event loop, so a
   `CancellationToken` cancelled from the caller's original loop after the bridged call has
