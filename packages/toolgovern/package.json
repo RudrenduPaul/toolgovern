@@ -1,6 +1,6 @@
 {
   "name": "toolgovern",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Runtime governance middleware for AI agent tool calls -- gate shell, filesystem, network, and credential access before a tool executes.",
   "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
   "bugs": {
@@ -32,7 +32,11 @@
     "agent-security",
     "runtime-governance",
     "tool-calling",
-    "llm-security"
+    "llm-security",
+    "mcp",
+    "policy-enforcement",
+    "scope-narrowing",
+    "audit-trail"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,6 +1,6 @@
 {
   "name": "toolgovern-cli",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "CLI for toolgovern -- validate policy files, audit local gate traces, and scaffold framework integration boilerplate, with a --json output mode for programmatic/agent use.",
   "homepage": "https://github.com/RudrenduPaul/toolgovern#readme",
   "bugs": {
@@ -35,7 +35,9 @@
     "tool-calling",
     "cli",
     "policy-validation",
-    "audit-trail"
+    "audit-trail",
+    "mcp",
+    "agent-governance"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
