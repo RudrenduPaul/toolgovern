@@ -8,6 +8,8 @@ it executes, not after something already went wrong.
 [![PyPI version](https://img.shields.io/pypi/v/toolgovern-cli.svg)](https://pypi.org/project/toolgovern-cli/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+![toolgovern validating a policy file, then denying a governed bash call that pipes a curl download from a known paste-relay host into sh, with the fired rule IDs printed before the call ever executes](./docs/demo.gif)
+
 toolgovern ships two independent, equally first-class packages -- pick whichever fits your
 toolchain, or install both. Neither is deprecated in favor of the other; they run the same 35-rule
 synchronous classifier (plus one additional, async-only TG03 DNS-resolution check on the npm side
@@ -29,8 +31,6 @@ The Python package's console script is `toolgovern-cli`, matching the npm CLI's 
 see [`python/README.md`](./python/README.md) and
 [docs/getting-started.md](./docs/getting-started.md) for the Python-specific walkthrough, and
 [CHANGELOG.md](./CHANGELOG.md) for each distribution's version history.
-
-![toolgovern validating a policy file, then denying a governed bash call that pipes a curl download from a known paste-relay host into sh, with the fired rule IDs printed before the call ever executes](./docs/demo.gif)
 
 ### Contents
 
