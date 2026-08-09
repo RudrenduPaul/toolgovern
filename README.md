@@ -411,6 +411,8 @@ A generic, documented adapter for wrapping a multi-agent framework's tool-execut
 is not a submitted or merged integration against any specific upstream project -- it's a working
 starting point to adapt, not a claim that any framework ships this today.
 
+![toolgovern-cli init oma scaffolding a toolgovern-integration-oma starting point into the current directory](./docs/demo-init-oma.gif)
+
 ```bash
 npm install toolgovern-integration-oma toolgovern
 ```
