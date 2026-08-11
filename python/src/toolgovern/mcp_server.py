@@ -36,47 +36,45 @@ from mcp.server import MCPServer
 
 _TIMEOUT_SECONDS = 60
 
-_STATIC_FALLBACK_DESCRIPTION = (
-    "Run the toolgovern-cli command-line tool with the given argument list "
-    "and return its output. toolgovern-cli validates governance policy "
-    "files and audits signed local trace logs of allow/deny/require-"
-    "approval decisions made by toolgovern's runtime tool-call gate. Pass "
-    "the same arguments you would give the `toolgovern-cli` command on the "
-    'command line, e.g. run(args=["validate", "./toolgovern.policy.yml", '
-    '"--json"]).'
+_RUN_TOOL_DESCRIPTION = (
+    "Executes one toolgovern-cli subcommand (validate, audit, or init) and returns its "
+    "structured result. Call this to check a governance policy file for errors before "
+    "deploying it, to forensically inspect a signed trace log of the allow/deny/"
+    "require-approval decisions toolgovern's runtime tool-call gate already made for an "
+    "agent run, or to scaffold a starter policy/integration file for a detected framework "
+    "(open-multi-agent or LangGraph). This tool does not itself gate live tool calls -- that "
+    "happens inside the governed agent process via the toolgovern library -- it only "
+    "validates, audits, and scaffolds around that gate.\n\n"
+    "No API key or network access is required; everything runs locally against files you "
+    "supply. 'validate' and 'audit' are strictly read-only (they only read the policy or "
+    "trace file given). 'init' writes a new integration file to disk and will refuse to "
+    "overwrite an existing one unless '--force' is passed. 'audit --verify-chain' "
+    "cryptographically checks the trace file's hash chain for tampering; if the trace was "
+    "written with a TraceWriter secretKey, pass '--key-file <path>' to verify the "
+    "hmac-sha256 signatures, otherwise unkeyed sha256 entries verify without it. This "
+    "handler never raises -- a launch failure, timeout, non-zero exit, or non-JSON stdout is "
+    "always returned as {\"error\": ...} instead of an exception.\n\n"
+    "Parameter `args` is the literal argv you would type after `toolgovern-cli` on the "
+    "command line, as a list of strings. Real examples: run(args=[\"validate\", "
+    "\"./toolgovern.policy.yml\", \"--json\"]) to check a policy file is well-formed; "
+    "run(args=[\"audit\", \"./toolgovern-trace.jsonl\", \"--decision\", \"deny\", "
+    "\"--json\"]) to list every denied tool call in a trace log; run(args=[\"audit\", "
+    "\"./toolgovern-trace.jsonl\", \"--agent\", \"research-sub\", \"--since\", \"24h\", "
+    "\"--verify-chain\", \"--json\"]) to audit one agent's recent decisions with tamper "
+    "verification; run(args=[\"init\", \"langgraph\", \"--policy\", "
+    "\"./toolgovern.policy.yml\", \"--json\"]) to scaffold a LangGraph integration. Always "
+    "include '--json' -- without it the CLI prints human-formatted text instead of a "
+    "parseable object.\n\n"
+    "With '--json', the CLI emits exactly one JSON object to stdout (never split across "
+    "stdout/stderr): {\"ok\": true, \"command\": ..., \"data\": {...}} on success, where "
+    "'data' holds the full result (e.g. matched/total counts and TraceEntry rows for "
+    "'audit'), or {\"ok\": false, \"command\": ..., \"error\": ...} on failure. This Python "
+    "wrapper further normalizes that into {\"result\": <parsed JSON>} on a zero exit, or "
+    "{\"returncode\", \"stdout\", \"stderr\"} if stdout wasn't valid JSON (e.g. '--json' was "
+    "omitted), or {\"error\": ..., \"returncode\": ...} on a non-zero exit. Pass "
+    "run(args=[\"--help\"]) or run(args=[\"<subcommand>\", \"--help\"]) for the CLI's own "
+    "current usage text."
 )
-
-
-def _get_cli_help() -> str:
-    """Runs `python -m toolgovern.cli --help` to source the tool
-    description from the CLI's real, current `--help` text. Returns "" on
-    any failure so the caller can fall back to the static description
-    instead of crashing at import time."""
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "toolgovern.cli", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return (result.stdout or result.stderr).strip()
-
-
-def _build_run_description() -> str:
-    help_text = _get_cli_help()
-    if not help_text:
-        return _STATIC_FALLBACK_DESCRIPTION
-    return (
-        "Run the toolgovern-cli command-line tool with the given argument "
-        f"list and return its output.\n\n{help_text}"
-    )
-
-
-# Populated once at import time from the real, installed CLI -- not
-# hand-maintained, so it can't silently drift from actual `--help` output.
-_RUN_TOOL_DESCRIPTION = _build_run_description()
 
 
 def build_app() -> MCPServer:
