@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.RudrenduPaul/toolgovern -->
 # toolgovern (Python)
 
 Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
@@ -264,6 +265,43 @@ structured-output envelope (`{ ok, command, data | error }`). **Not ported in th
 `toolgovern-cli init [oma|langgraph]`, the npm CLI's TypeScript integration-file scaffolder --
 it generates a `.ts` file importing the JS/TS-only `toolgovern-integration-langgraph` /
 `toolgovern-integration-oma` packages, which are out of scope for a Python port by nature.
+
+## MCP Server
+
+toolgovern-cli ships a Model Context Protocol server, so an MCP-compatible agent (Claude
+Desktop, Claude Code, or any other MCP client) can call `validate` and `audit` directly instead
+of shelling out and parsing text.
+
+```bash
+pip install "toolgovern-cli[mcp]"
+```
+
+Claude Desktop config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "toolgovern": {
+      "command": "toolgovern-mcp"
+    }
+  }
+}
+```
+
+The server exposes one tool, `run`, which takes the same argument list you'd pass to
+`toolgovern-cli` on the command line and returns its result as structured JSON -- it never
+raises, even on a bad file, a timeout, or non-JSON output; every failure comes back as
+`{"error": ...}` instead:
+
+```
+run(args=["validate", "./toolgovern.policy.yml", "--json"])
+```
+
+This is a generic subprocess wrapper around the real CLI (not a second implementation of each
+subcommand), so it stays in sync with `validate`, `audit`, and any future subcommand
+automatically. This is distinct from toolgovern's `mcp_trust` module, which is a client-side
+tool for verifying the trustworthiness of *other* MCP servers an agent connects to -- this
+section is about toolgovern-cli exposing its own MCP server for agents to call.
 
 ## The signed audit trail
 

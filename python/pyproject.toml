@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "toolgovern-cli"
-version = "0.1.3"
+version = "0.1.4"
 description = "Runtime governance middleware for AI agent tool calls -- gate shell, filesystem, network, and credential access before a tool executes."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,6 +40,12 @@ dev = [
   "build>=1.0,<2",
   "twine>=5.0,<7",
 ]
+# Pinned to >=2.0.0: mcp_server.py uses `mcp.server.MCPServer`, the current
+# high-level server class -- `mcp.server.fastmcp.FastMCP` was removed in
+# the 2.0.0 release.
+mcp = [
+  "mcp[cli]>=2.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/RudrenduPaul/toolgovern"
@@ -52,6 +58,10 @@ Documentation = "https://github.com/RudrenduPaul/toolgovern/blob/main/docs/getti
 
 [project.scripts]
 toolgovern-cli = "toolgovern.cli:main"
+toolgovern-mcp = "toolgovern.mcp_server:main"
+
+[tool.hatch.build]
+exclude = [".venv*/"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/toolgovern"]

@@ -791,6 +791,44 @@ in a single `error.message` field, the one place to check for what went wrong. F
 shapes and worked examples for all three commands are in
 [`packages/toolgovern-cli/README.md`](packages/toolgovern-cli/README.md#--json----structured-output-for-scripts-and-agents).
 
+## MCP Server
+
+The Python distribution (`toolgovern-cli` on PyPI) ships a Model Context Protocol server, so an
+MCP-compatible agent (Claude Desktop, Claude Code, or any other MCP client) can call `validate`
+and `audit` directly instead of shelling out and parsing text.
+
+```bash
+pip install "toolgovern-cli[mcp]"
+```
+
+Claude Desktop config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "toolgovern": {
+      "command": "toolgovern-mcp"
+    }
+  }
+}
+```
+
+The server exposes one tool, `run`, which takes the same argument list you'd pass to
+`toolgovern-cli` on the command line and returns its result as structured JSON -- it never
+raises, even on a bad file, a timeout, or non-JSON output; every failure comes back as
+`{"error": ...}` instead:
+
+```
+run(args=["validate", "./toolgovern.policy.yml", "--json"])
+```
+
+This is a generic subprocess wrapper around the real CLI, not a second implementation of each
+subcommand, so it stays in sync with `validate`, `audit`, and any future subcommand
+automatically. This is distinct from toolgovern's `mcp_trust` module (see below), which is a
+client-side tool for verifying the trustworthiness of *other* MCP servers an agent connects to
+-- this section is about toolgovern-cli exposing its own MCP server for agents to call. See
+[`python/README.md`](python/README.md#mcp-server) for the full install and usage details.
+
 ## Self-hosting
 
 Everything in this repo runs entirely on your own machine or infrastructure. No call payload,
