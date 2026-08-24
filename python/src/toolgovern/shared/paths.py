@@ -15,8 +15,18 @@ _BRACKETED_HOST_PATTERN = re.compile(r"^\[([^\]]+)\]")
 
 
 def normalize_path(raw_path: str) -> str:
-    """Collapses ``./``, trailing slashes, and duplicate slashes for stable prefix comparison."""
+    """Collapses ``./``, trailing slashes, and duplicate slashes for stable prefix comparison.
+
+    Backslashes are treated as path separators too -- the same as forward slashes -- regardless
+    of the host OS this code happens to run on. A declared scope must hold whether the target
+    path is destined for a Windows filesystem (where ``\\`` is the native separator) or is simply
+    an attacker-supplied string mixing separators to dodge a ``/``-only prefix check; without
+    this, a path like ``/allowed/sub\\..\\..\\..\\secrets`` compares as a literal child of
+    ``/allowed`` even though it resolves outside it once backslashes are treated as separators
+    downstream.
+    """
     path = raw_path.strip()
+    path = path.replace("\\", "/")
     if path.startswith("./"):
         path = path[2:]
     path = re.sub(r"/+", "/", path)
@@ -37,8 +47,13 @@ def is_path_within(candidate: str, prefix: str) -> bool:
 
 
 def contains_path_traversal(raw_path: str) -> bool:
-    """True if the path contains a ``..`` segment that could escape a scoped prefix via traversal."""
-    return ".." in raw_path.split("/")
+    """True if the path contains a ``..`` segment that could escape a scoped prefix via traversal.
+
+    Splits on both ``/`` and ``\\`` (see ``normalize_path`` above for why backslash must count as
+    a separator here too) so ``sub\\..\\..\\..\\secrets`` is caught exactly like
+    ``sub/../../../secrets``.
+    """
+    return ".." in re.split(r"[/\\]", raw_path)
 
 
 def normalize_host(host_like: str) -> str:

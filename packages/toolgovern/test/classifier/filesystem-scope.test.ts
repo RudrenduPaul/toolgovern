@@ -242,6 +242,34 @@ describe('TG02 filesystem scope escalation', () => {
       expect(fires('TG02-path-traversal', { code: 'open("./workspace/report.txt").read()' })).toBe(
         false,
       ));
+
+    // 2026-08-24 security fix: the underlying `containsPathTraversal`/`isPathWithin` helpers
+    // (packages/toolgovern/src/shared/paths.ts) used to split only on `/`, so a backslash-
+    // delimited ".." segment (e.g. `sub\..\..\..\secrets`) was never recognized as traversal --
+    // the exact same string compared as a literal in-scope child of the declared prefix because
+    // it happened to start with the right characters, letting a sub-agent escape its declared
+    // filesystem scope undetected. This bug was present identically in the TypeScript, Python,
+    // and .NET ports; all three share this fix.
+    it('flags a backslash-delimited traversal path (the ".." segments use "\\" instead of "/")', () =>
+      expect(
+        fires('TG02-path-traversal', {
+          path: './workspace/sub\\..\\..\\..\\secrets',
+          operation: 'write',
+        }),
+      ).toBe(true));
+
+    it('flags a bare backslash-delimited traversal path with no declared scope match at all', () =>
+      expect(
+        fires('TG02-path-traversal', { path: '..\\..\\secrets', operation: 'read' }),
+      ).toBe(true));
+
+    it('flags a mixed forward-slash/backslash traversal path', () =>
+      expect(
+        fires('TG02-path-traversal', {
+          path: './workspace/sub/..\\../etc/passwd',
+          operation: 'write',
+        }),
+      ).toBe(true));
   });
 
   describe('TG02-symlink-escape', () => {

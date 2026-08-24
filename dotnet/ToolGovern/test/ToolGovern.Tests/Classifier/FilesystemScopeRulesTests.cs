@@ -214,6 +214,24 @@ public class FilesystemScopeRulesTests
     public void path_traversal_does_not_flag_clean_path_embedded_in_code() =>
         Assert.False(Fires("TG02-path-traversal", new() { ["code"] = "open(\"./workspace/report.txt\").read()" }));
 
+    // 2026-08-24 security fix: PathUtil.ContainsPathTraversal/IsPathWithin used to split only on
+    // '/', so a backslash-delimited ".." segment (e.g. "sub\..\..\..\secrets") was never
+    // recognized as traversal -- the same string compared as a literal in-scope child of the
+    // declared prefix because it happened to start with the right characters, letting a
+    // sub-agent escape its declared filesystem scope undetected. Identical bug in the
+    // TypeScript and Python ports; all three share this fix.
+    [Fact]
+    public void path_traversal_flags_a_backslash_delimited_traversal_path() =>
+        Assert.True(Fires("TG02-path-traversal", new() { ["path"] = "./workspace/sub\\..\\..\\..\\secrets", ["operation"] = "write" }));
+
+    [Fact]
+    public void path_traversal_flags_a_bare_backslash_delimited_traversal_path() =>
+        Assert.True(Fires("TG02-path-traversal", new() { ["path"] = "..\\..\\secrets", ["operation"] = "read" }));
+
+    [Fact]
+    public void path_traversal_flags_a_mixed_separator_traversal_path() =>
+        Assert.True(Fires("TG02-path-traversal", new() { ["path"] = "./workspace/sub/..\\../etc/passwd", ["operation"] = "write" }));
+
     [Fact]
     public void symlink_escape_flags_a_symlink_target_outside_scope() =>
         Assert.True(Fires("TG02-symlink-escape", new() { ["path"] = "/etc/passwd", ["operation"] = "symlink" }));

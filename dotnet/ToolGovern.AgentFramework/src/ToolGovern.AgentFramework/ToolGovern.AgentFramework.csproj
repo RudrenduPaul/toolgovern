@@ -13,7 +13,7 @@
     <Description>toolgovern integration for Microsoft Agent Framework (.NET): wraps a real
 Microsoft.Extensions.AI.AIFunction in a DelegatingAIFunction subclass that routes every
 invocation through ToolGovern.Net's classifier before the underlying function executes.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageTags>agent-governance;tool-calling;security;llm-agents;guardrails;agent-framework</PackageTags>
     <RepositoryUrl>https://github.com/RudrenduPaul/toolgovern</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>

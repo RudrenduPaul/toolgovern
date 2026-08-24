@@ -11,7 +11,7 @@
     <Version>0.1.0</Version>
     <Authors>ToolGovern contributors</Authors>
     <Description>A genuine .NET port of ToolGovern's core: the multi-rule risk classifier (shell-risk, filesystem-scope, network-egress including DNS-resolution checks, credential-access, cross-agent-inheritance, information-flow), the intersection-only scope registry, the signed hash-chained trace writer/reader, and the governTool() pre-execution middleware gate -- mirroring the same behavior and same failure-closed defaults as the TypeScript original and the Python port.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageTags>agent-governance;tool-calling;security;llm-agents;guardrails</PackageTags>
     <RepositoryUrl>https://github.com/RudrenduPaul/toolgovern</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>

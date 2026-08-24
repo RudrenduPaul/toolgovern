@@ -1,4 +1,5 @@
 <!-- mcp-name: io.github.RudrenduPaul/toolgovern -->
+
 # toolgovern (Python)
 
 Gate every tool call an AI agent makes -- shell, filesystem, network, credential access -- before
@@ -300,7 +301,7 @@ run(args=["validate", "./toolgovern.policy.yml", "--json"])
 This is a generic subprocess wrapper around the real CLI (not a second implementation of each
 subcommand), so it stays in sync with `validate`, `audit`, and any future subcommand
 automatically. This is distinct from toolgovern's `mcp_trust` module, which is a client-side
-tool for verifying the trustworthiness of *other* MCP servers an agent connects to -- this
+tool for verifying the trustworthiness of _other_ MCP servers an agent connects to -- this
 section is about toolgovern-cli exposing its own MCP server for agents to call.
 
 ## The signed audit trail
