@@ -259,9 +259,9 @@ describe('TG02 filesystem scope escalation', () => {
       ).toBe(true));
 
     it('flags a bare backslash-delimited traversal path with no declared scope match at all', () =>
-      expect(
-        fires('TG02-path-traversal', { path: '..\\..\\secrets', operation: 'read' }),
-      ).toBe(true));
+      expect(fires('TG02-path-traversal', { path: '..\\..\\secrets', operation: 'read' })).toBe(
+        true,
+      ));
 
     it('flags a mixed forward-slash/backslash traversal path', () =>
       expect(
