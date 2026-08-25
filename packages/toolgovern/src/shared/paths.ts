@@ -4,9 +4,16 @@
  * classifier <-> scoping cycle.
  */
 
-/** Collapses `./`, trailing slashes, and duplicate slashes for stable prefix comparison. */
+/** Collapses `./`, trailing slashes, and duplicate slashes for stable prefix comparison.
+ *  Backslashes are treated as path separators too -- the same as forward slashes -- regardless
+ *  of the host OS this code happens to run on. A declared scope must hold whether the target
+ *  path is destined for a Windows filesystem (where `\` is the native separator) or is simply an
+ *  attacker-supplied string mixing separators to dodge a `/`-only prefix check; without this, a
+ *  path like `/allowed/sub\..\..\..\secrets` compares as a literal child of `/allowed` even
+ *  though it resolves outside it once backslashes are treated as separators downstream. */
 export function normalizePath(rawPath: string): string {
   let path = rawPath.trim();
+  path = path.replace(/\\/g, '/');
   if (path.startsWith('./')) {
     path = path.slice(2);
   }
@@ -30,9 +37,11 @@ export function isPathWithin(candidate: string, prefix: string): boolean {
   );
 }
 
-/** True if the path contains a `..` segment that could escape a scoped prefix via traversal. */
+/** True if the path contains a `..` segment that could escape a scoped prefix via traversal.
+ *  Splits on both `/` and `\` (see `normalizePath` above for why backslash must count as a
+ *  separator here too) so `sub\..\..\..\secrets` is caught exactly like `sub/../../../secrets`. */
 export function containsPathTraversal(rawPath: string): boolean {
-  return rawPath.split('/').includes('..');
+  return rawPath.split(/[/\\]/).includes('..');
 }
 
 /** Best-effort hostname extraction from a bare host string or a full URL. */

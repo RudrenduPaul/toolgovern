@@ -825,7 +825,7 @@ run(args=["validate", "./toolgovern.policy.yml", "--json"])
 This is a generic subprocess wrapper around the real CLI, not a second implementation of each
 subcommand, so it stays in sync with `validate`, `audit`, and any future subcommand
 automatically. This is distinct from toolgovern's `mcp_trust` module (see below), which is a
-client-side tool for verifying the trustworthiness of *other* MCP servers an agent connects to
+client-side tool for verifying the trustworthiness of _other_ MCP servers an agent connects to
 -- this section is about toolgovern-cli exposing its own MCP server for agents to call. See
 [`python/README.md`](python/README.md#mcp-server) for the full install and usage details.
 

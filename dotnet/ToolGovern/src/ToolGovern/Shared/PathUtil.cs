@@ -8,10 +8,18 @@ namespace ToolGovern.Shared;
 /// </summary>
 public static partial class PathUtil
 {
-    /// <summary>Collapses "./", trailing slashes, and duplicate slashes for stable prefix comparison.</summary>
+    /// <summary>Collapses "./", trailing slashes, and duplicate slashes for stable prefix
+    /// comparison. Backslashes are treated as path separators too -- the same as forward
+    /// slashes -- regardless of the host OS this code happens to run on. A declared scope must
+    /// hold whether the target path is destined for a Windows filesystem (where "\" is the
+    /// native separator) or is simply an attacker-supplied string mixing separators to dodge a
+    /// "/"-only prefix check; without this, a path like "/allowed/sub\..\..\..\secrets" compares
+    /// as a literal child of "/allowed" even though it resolves outside it once backslashes are
+    /// treated as separators downstream.</summary>
     public static string NormalizePath(string rawPath)
     {
         var path = rawPath.Trim();
+        path = path.Replace('\\', '/');
         if (path.StartsWith("./", StringComparison.Ordinal))
         {
             path = path[2..];
@@ -37,9 +45,12 @@ public static partial class PathUtil
             || normalizedCandidate.StartsWith(normalizedPrefix + "/", StringComparison.Ordinal);
     }
 
-    /// <summary>True if the path contains a ".." segment that could escape a scoped prefix via traversal.</summary>
+    /// <summary>True if the path contains a ".." segment that could escape a scoped prefix via
+    /// traversal. Splits on both "/" and "\" (see NormalizePath above for why backslash must
+    /// count as a separator here too) so "sub\..\..\..\secrets" is caught exactly like
+    /// "sub/../../../secrets".</summary>
     public static bool ContainsPathTraversal(string rawPath) =>
-        rawPath.Split('/').Contains("..");
+        PathSeparatorRegex().Split(rawPath).Contains("..");
 
     /// <summary>Best-effort hostname extraction from a bare host string or a full URL.</summary>
     public static string NormalizeHost(string hostLike)
@@ -267,6 +278,9 @@ public static partial class PathUtil
 
     [GeneratedRegex(@"/+")]
     private static partial Regex MultiSlashRegex();
+
+    [GeneratedRegex(@"[/\\]")]
+    private static partial Regex PathSeparatorRegex();
 
     [GeneratedRegex(@"^[a-z][a-z0-9+.\-]*://", RegexOptions.IgnoreCase)]
     private static partial Regex SchemePrefixRegex();

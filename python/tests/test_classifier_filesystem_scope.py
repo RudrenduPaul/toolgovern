@@ -121,6 +121,37 @@ class TestPathTraversal:
         decision, ids = _fired(ctx)
         assert "TG02-path-traversal" in ids
 
+    # 2026-08-24 security fix: `contains_path_traversal`/`is_path_within`
+    # (python/src/toolgovern/shared/paths.py) used to split only on "/", so a backslash-delimited
+    # ".." segment (e.g. "sub\..\..\..\secrets") was never recognized as traversal -- the same
+    # string compared as a literal in-scope child of the declared prefix because it happened to
+    # start with the right characters, letting a sub-agent escape its declared filesystem scope
+    # undetected. Identical bug in the TypeScript and .NET ports; all three share this fix.
+    def test_fires_on_backslash_delimited_dotdot(self, ctx_factory):
+        ctx = ctx_factory(
+            {"path": "/workspace/sub\\..\\..\\..\\secrets", "operation": "write"},
+            scope=ScopeDeclaration(filesystem=["/workspace"]),
+        )
+        decision, ids = _fired(ctx)
+        assert decision == "deny"
+        assert "TG02-path-traversal" in ids
+
+    def test_fires_on_bare_backslash_traversal(self, ctx_factory):
+        ctx = ctx_factory(
+            {"path": "..\\..\\secrets", "operation": "read"},
+            scope=ScopeDeclaration(filesystem=["/workspace"]),
+        )
+        decision, ids = _fired(ctx)
+        assert "TG02-path-traversal" in ids
+
+    def test_fires_on_mixed_separator_traversal(self, ctx_factory):
+        ctx = ctx_factory(
+            {"path": "/workspace/sub/..\\../etc/passwd", "operation": "write"},
+            scope=ScopeDeclaration(filesystem=["/workspace"]),
+        )
+        decision, ids = _fired(ctx)
+        assert "TG02-path-traversal" in ids
+
 
 class TestSymlinkEscape:
     def test_fires_outside_scope(self, ctx_factory):
