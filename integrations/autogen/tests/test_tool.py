@@ -133,7 +133,7 @@ async def test_sub_agent_tool_call_is_capped_by_coordinator_scope():
     allowed = await governed.run_json(
         {"url": "http://internal-api.example.com/"}, CancellationToken()
     )
-    assert "internal-api.example.com" in allowed
+    assert allowed == "<html>fetched http://internal-api.example.com/</html>"
 
     # Denied: the sub-agent's own requested scope named this host, but the coordinator's scope
     # never granted it -- intersection-only inheritance drops it, exactly like a union model
