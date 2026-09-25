@@ -31,7 +31,7 @@ classifiers = [
 ]
 dependencies = [
   "PyYAML>=6.0,<7",
-  "cryptography>=48.0.1,<49",
+  "cryptography>=48.0.1,<51",
 ]
 
 [project.optional-dependencies]
