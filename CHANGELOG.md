@@ -6,7 +6,8 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [0.2.0] - 2026-09-24 - security fix and dependency upgrades
 
-Applies to npm `toolgovern` and `toolgovern-cli`, and PyPI `toolgovern-cli`.
+Applies to npm `toolgovern`, `toolgovern-cli`, `toolgovern-integration-langgraph` and
+`toolgovern-integration-oma`, and PyPI `toolgovern-cli`.
 
 - Includes the backslash path-traversal fix in the filesystem-scope classifier (TypeScript and
   Python ports), which was merged after the previous npm and PyPI releases and had not shipped.
@@ -15,8 +16,9 @@ Applies to npm `toolgovern` and `toolgovern-cli`, and PyPI `toolgovern-cli`.
 - PyPI `toolgovern-cli`: `cryptography` cap widened to `<51` (`>=48.0.1,<51`).
 - Publishing moves to npm Trusted Publishing (OIDC, no long-lived token) via
   `.github/workflows/publish-npm.yml`, triggered by a published GitHub release.
-- `toolgovern-integration-langgraph` and `toolgovern-integration-oma` stay at 0.1.3 (development
-  dependency updates only, no shipped change).
+- `toolgovern-integration-langgraph` and `toolgovern-integration-oma` move to 0.2.0 and now depend
+  on `toolgovern` `^0.2.0` (previously pinned to 0.1.3), so they pick up the path-traversal fix
+  above.
 
 ## Package rename (no version bump) - 2026-07-18 - PyPI project renamed to toolgovern-cli
 
